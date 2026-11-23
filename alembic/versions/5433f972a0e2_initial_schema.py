@@ -1,8 +1,8 @@
 """initial schema
 
-Revision ID: c59a1d414bae
+Revision ID: 5433f972a0e2
 Revises: 
-Create Date: 2026-06-02 17:26:13.060435
+Create Date: 2026-11-23 21:45:39.125025
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'c59a1d414bae'
+revision: str = '5433f972a0e2'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -26,17 +26,26 @@ def upgrade() -> None:
     sa.Column('name', sa.String(length=200), nullable=False),
     sa.Column('participant_code', sa.String(length=100), nullable=False),
     sa.Column('admin_code', sa.String(length=100), nullable=False),
+    sa.Column('descriptions_enabled', sa.Boolean(), server_default=sa.text('1'), nullable=False),
     sa.Column('created_at', sa.DateTime(), nullable=False),
     sa.PrimaryKeyConstraint('id')
     )
+    with op.batch_alter_table('events', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_events_admin_code'), ['admin_code'], unique=False)
+        batch_op.create_index(batch_op.f('ix_events_participant_code'), ['participant_code'], unique=False)
+
     op.create_table('participants',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('event_id', sa.Integer(), nullable=False),
     sa.Column('display_name', sa.String(length=200), nullable=False),
+    sa.Column('is_admin', sa.Boolean(), server_default=sa.text('0'), nullable=False),
     sa.Column('created_at', sa.DateTime(), nullable=False),
     sa.ForeignKeyConstraint(['event_id'], ['events.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
+    with op.batch_alter_table('participants', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_participants_event_id'), ['event_id'], unique=False)
+
     op.create_table('rooms',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('event_id', sa.Integer(), nullable=False),
@@ -45,6 +54,9 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['event_id'], ['events.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
+    with op.batch_alter_table('rooms', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_rooms_event_id'), ['event_id'], unique=False)
+
     op.create_table('rounds',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('event_id', sa.Integer(), nullable=False),
@@ -57,22 +69,45 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['event_id'], ['events.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
+    with op.batch_alter_table('rounds', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_rounds_event_id'), ['event_id'], unique=False)
+
     op.create_table('proposals',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('event_id', sa.Integer(), nullable=False),
+    sa.Column('round_id', sa.Integer(), nullable=True),
     sa.Column('title', sa.String(length=300), nullable=False),
     sa.Column('description', sa.Text(), nullable=True),
     sa.Column('status', sa.String(length=20), nullable=False),
     sa.Column('created_by', sa.Integer(), nullable=False),
-    sa.Column('slots_needed', sa.Integer(), nullable=False),
-    sa.Column('allow_repeat', sa.Boolean(), nullable=False),
+    sa.Column('min_interest_override', sa.Integer(), nullable=True),
+    sa.Column('max_attendees', sa.Integer(), nullable=True),
     sa.Column('merged_into', sa.Integer(), nullable=True),
     sa.Column('created_at', sa.DateTime(), nullable=False),
     sa.ForeignKeyConstraint(['created_by'], ['participants.id'], ),
     sa.ForeignKeyConstraint(['event_id'], ['events.id'], ),
     sa.ForeignKeyConstraint(['merged_into'], ['proposals.id'], ),
+    sa.ForeignKeyConstraint(['round_id'], ['rounds.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
+    with op.batch_alter_table('proposals', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_proposals_event_id'), ['event_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_proposals_round_id'), ['round_id'], unique=False)
+
+    op.create_table('push_subscriptions',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('participant_id', sa.Integer(), nullable=False),
+    sa.Column('endpoint', sa.Text(), nullable=False),
+    sa.Column('p256dh', sa.String(length=255), nullable=False),
+    sa.Column('auth', sa.String(length=255), nullable=False),
+    sa.Column('created_at', sa.DateTime(), nullable=False),
+    sa.ForeignKeyConstraint(['participant_id'], ['participants.id'], ),
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('endpoint')
+    )
+    with op.batch_alter_table('push_subscriptions', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_push_subscriptions_participant_id'), ['participant_id'], unique=False)
+
     op.create_table('round_participants',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('round_id', sa.Integer(), nullable=False),
@@ -83,6 +118,10 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('round_id', 'participant_id')
     )
+    with op.batch_alter_table('round_participants', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_round_participants_participant_id'), ['participant_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_round_participants_round_id'), ['round_id'], unique=False)
+
     op.create_table('round_snapshots',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('round_id', sa.Integer(), nullable=False),
@@ -92,6 +131,9 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['round_id'], ['rounds.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
+    with op.batch_alter_table('round_snapshots', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_round_snapshots_round_id'), ['round_id'], unique=False)
+
     op.create_table('timeslots',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('round_id', sa.Integer(), nullable=False),
@@ -102,12 +144,14 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['round_id'], ['rounds.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
+    with op.batch_alter_table('timeslots', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_timeslots_round_id'), ['round_id'], unique=False)
+
     op.create_table('placements',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('timeslot_id', sa.Integer(), nullable=False),
     sa.Column('room_id', sa.Integer(), nullable=False),
     sa.Column('proposal_id', sa.Integer(), nullable=False),
-    sa.Column('span', sa.Integer(), nullable=False),
     sa.Column('pinned', sa.Boolean(), nullable=False),
     sa.ForeignKeyConstraint(['proposal_id'], ['proposals.id'], ),
     sa.ForeignKeyConstraint(['room_id'], ['rooms.id'], ),
@@ -115,6 +159,10 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('timeslot_id', 'room_id')
     )
+    with op.batch_alter_table('placements', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_placements_proposal_id'), ['proposal_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_placements_timeslot_id'), ['timeslot_id'], unique=False)
+
     op.create_table('proposal_runners',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('proposal_id', sa.Integer(), nullable=False),
@@ -124,6 +172,10 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('proposal_id', 'participant_id')
     )
+    with op.batch_alter_table('proposal_runners', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_proposal_runners_participant_id'), ['participant_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_proposal_runners_proposal_id'), ['proposal_id'], unique=False)
+
     op.create_table('ratings',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('participant_id', sa.Integer(), nullable=False),
@@ -135,6 +187,10 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('participant_id', 'proposal_id')
     )
+    with op.batch_alter_table('ratings', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_ratings_participant_id'), ['participant_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_ratings_proposal_id'), ['proposal_id'], unique=False)
+
     op.create_table('timeslot_rooms',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('timeslot_id', sa.Integer(), nullable=False),
@@ -151,15 +207,58 @@ def downgrade() -> None:
     """Downgrade schema."""
     # ### commands auto generated by Alembic - please adjust! ###
     op.drop_table('timeslot_rooms')
+    with op.batch_alter_table('ratings', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_ratings_proposal_id'))
+        batch_op.drop_index(batch_op.f('ix_ratings_participant_id'))
+
     op.drop_table('ratings')
+    with op.batch_alter_table('proposal_runners', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_proposal_runners_proposal_id'))
+        batch_op.drop_index(batch_op.f('ix_proposal_runners_participant_id'))
+
     op.drop_table('proposal_runners')
+    with op.batch_alter_table('placements', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_placements_timeslot_id'))
+        batch_op.drop_index(batch_op.f('ix_placements_proposal_id'))
+
     op.drop_table('placements')
+    with op.batch_alter_table('timeslots', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_timeslots_round_id'))
+
     op.drop_table('timeslots')
+    with op.batch_alter_table('round_snapshots', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_round_snapshots_round_id'))
+
     op.drop_table('round_snapshots')
+    with op.batch_alter_table('round_participants', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_round_participants_round_id'))
+        batch_op.drop_index(batch_op.f('ix_round_participants_participant_id'))
+
     op.drop_table('round_participants')
+    with op.batch_alter_table('push_subscriptions', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_push_subscriptions_participant_id'))
+
+    op.drop_table('push_subscriptions')
+    with op.batch_alter_table('proposals', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_proposals_round_id'))
+        batch_op.drop_index(batch_op.f('ix_proposals_event_id'))
+
     op.drop_table('proposals')
+    with op.batch_alter_table('rounds', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_rounds_event_id'))
+
     op.drop_table('rounds')
+    with op.batch_alter_table('rooms', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_rooms_event_id'))
+
     op.drop_table('rooms')
+    with op.batch_alter_table('participants', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_participants_event_id'))
+
     op.drop_table('participants')
+    with op.batch_alter_table('events', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_events_participant_code'))
+        batch_op.drop_index(batch_op.f('ix_events_admin_code'))
+
     op.drop_table('events')
     # ### end Alembic commands ###
