@@ -29,7 +29,7 @@ hosts many events, each with its own codes, rooms, and rounds.
   left out, who found nothing they'd attend, the share who got a most-preferred
   session, capacity overflows, and the top unplaced sessions. They **Generate** a
   schedule, pin/drop/move placements and re-solve around pins, tune per-session
-  settings, then **Publish** — which freezes the lineup
+  settings, then **Publish**, which freezes the lineup
   attendees see (later edits stay private until you re-publish). The schedule can be
   copied as **Markdown** for Slack/Discord or opened as a **projector view**, and each
   timeslot has a **Start clock** that drives participant countdowns and pre-end alerts.

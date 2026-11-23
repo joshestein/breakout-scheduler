@@ -213,7 +213,7 @@ Treat `cert.pem` and the credentials JSON as secrets; keep them on the host only
 
 - `app/solver.py`, `app/solver_input.py` — the CP-SAT model and the DB→problem builder; pure
   functions, unit-tested on fixtures (the riskiest logic).
-- `app/services/` — rounds, proposals, ratings, push, backup.
+- `app/services/`: rounds, proposals, ratings, push, backup.
 - `app/routers/` — `events` (join/create), `participant` (propose/rate/schedule), `admin`
   (console), `push`.
 - `app/templates/`, `app/static/` — htmx + Jinja UI.
