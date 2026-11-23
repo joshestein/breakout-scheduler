@@ -129,21 +129,31 @@ def build_and_solve(problem: Problem) -> Result:
             pin_conflicts.append(key)
 
     # floor: a running session seats at least `min_seated` non-hosts. Pinned sessions
-    # (an admin's explicit choice) and fixed-grid scoring are exempt, so a hand edit can
-    # never make the model infeasible.
+    # (an admin's explicit choice) are exempt. Fixed-grid scoring makes it a soft goal
+    # (`shortfall`, top priority) so the seating keeps the floors Generate kept, but a
+    # hand edit can never make the model infeasible.
     pinned_cids = {cid for (cid, _, _) in problem.pins}
-    if problem.fixed is None:
+    min_of = {c.id: max(1, c.min_seated) for c in problem.candidates}
+    shortfall: list[cp_model.IntVar] = []
+    if problem.fixed is not None:
+        for (cid, sid, r) in problem.fixed:
+            if (cid, sid, r) not in place:
+                continue
+            short = m.new_int_var(0, min_of[cid], f"short_{cid}_{sid}")
+            m.add(short >= min_of[cid] - sum(attending(cid, sid, include_runners=False)))
+            shortfall.append(short)
+    else:
         for c in problem.candidates:
             if c.id in pinned_cids:
                 continue
-            floor = max(1, c.min_seated)
             for s in slots:
                 if not rooms_of[(c.id, s.id)]:
                     continue
                 guests = attending(c.id, s.id, include_runners=False)
-                m.add(sum(guests) >= floor * placed_in(c.id, s.id))
+                m.add(sum(guests) >= min_of[c.id] * placed_in(c.id, s.id))
 
     # Objective, in strict priority order:
+    #   0. (fixed-grid scoring only) fill each placed session up to its floor;
     #   1. leave as few people as possible with nothing to attend in a slot;
     #   2. then maximise interest points of the people seated;
     #   3. then, on exact ties, prefer the earlier proposal.
@@ -158,8 +168,10 @@ def build_and_solve(problem: Problem) -> Result:
     # each person earns at most the top weight once per slot
     max_interest = max(WEIGHT.values()) * len(problem.present) * len(slots)
     coverage_scale = (max_interest + 1) * tie_scale
+    floor_scale = (len(problem.present) * len(slots) + 1) * coverage_scale
 
-    m.maximize(interest * tie_scale - tie_penalty - coverage_scale * n_uncovered)
+    m.maximize(interest * tie_scale - tie_penalty - coverage_scale * n_uncovered
+               - floor_scale * sum(shortfall))
     solver = _new_solver()
     status = solver.solve(m)
     ok = status in (cp_model.OPTIMAL, cp_model.FEASIBLE)
