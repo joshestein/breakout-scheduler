@@ -6,8 +6,7 @@ from __future__ import annotations
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.models import Round, Proposal, Timeslot, Placement, Participant, Room, TimeslotRoom
-from sqlalchemy import select
+from app.models import Round, Proposal, Timeslot, Placement, Participant, Room
 
 
 def _deny():
@@ -57,9 +56,3 @@ def owned_room(session: Session, room_id: int, event_id: int) -> Room:
         _deny()
     return r
 
-
-def room_in_timeslot(session: Session, timeslot_id: int, room_id: int) -> None:
-    if session.scalar(select(TimeslotRoom).where(
-            TimeslotRoom.timeslot_id == timeslot_id,
-            TimeslotRoom.room_id == room_id)) is None:
-        raise HTTPException(status_code=409, detail="room not available in this slot")

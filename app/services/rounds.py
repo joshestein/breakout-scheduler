@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import json
 from dataclasses import replace
 from datetime import datetime, timezone
 
 from sqlalchemy import select, delete
 from sqlalchemy.orm import Session
 
-from app.models import (Round, Timeslot, TimeslotRoom, Placement, Room, Proposal,
-                        Participant, RoundParticipant, RoundSnapshot)
+from app.models import Round, Timeslot, Placement, Room, Proposal, ProposalRunner, Participant
 from app.types import Result
 from app.solver_input import build_problem
 from app.solver import build_and_solve
@@ -24,31 +22,12 @@ def create_round(session: Session, *, event_id: int, name: str,
 
 
 def add_timeslot(session: Session, *, round_id: int, name: str, position: int,
-                 duration_minutes: int = 45, room_ids: list[int] | None = None) -> Timeslot:
+                 duration_minutes: int = 45) -> Timeslot:
     ts = Timeslot(round_id=round_id, name=name, position=position,
                   duration_minutes=duration_minutes)
     session.add(ts); session.flush()
-    for rid in (room_ids or []):
-        session.add(TimeslotRoom(timeslot_id=ts.id, room_id=rid))
-    session.flush()
     return ts
 
-
-def set_timeslot_rooms(session: Session, *, timeslot_id: int, room_ids: list[int]) -> None:
-    """Replace the set of rooms available in a timeslot. Placements in removed
-    rooms are dropped."""
-    keep = set(room_ids)
-    existing = {tr.room_id: tr for tr in session.scalars(
-        select(TimeslotRoom).where(TimeslotRoom.timeslot_id == timeslot_id))}
-    for room_id, tr in existing.items():
-        if room_id not in keep:
-            session.delete(tr)
-    for room_id in keep - existing.keys():
-        session.add(TimeslotRoom(timeslot_id=timeslot_id, room_id=room_id))
-    for pl in session.scalars(select(Placement).where(Placement.timeslot_id == timeslot_id)):
-        if pl.room_id not in keep:
-            session.delete(pl)
-    session.flush()
 
 
 def schedule_markdown(session: Session, round_id: int) -> str:
@@ -73,7 +52,7 @@ def schedule_markdown(session: Session, round_id: int) -> str:
         if not cells:
             continue
         lines = [f"{ts.name} Breakouts"]
-        lines += [f"- {rooms.get(pl.room_id, '—')}: {titles.get(pl.proposal_id, '?')}"
+        lines += [f"- {rooms.get(pl.room_id, '?')}: {titles.get(pl.proposal_id, '?')}"
                   for pl in cells]
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
@@ -87,9 +66,8 @@ def edit_room(session: Session, room_id: int, *, name: str, capacity: int) -> No
 
 
 def delete_room(session: Session, room_id: int) -> None:
-    """Remove a room and everything referencing it (placements, per-slot membership)."""
+    """Remove a room and its placements."""
     session.execute(delete(Placement).where(Placement.room_id == room_id))
-    session.execute(delete(TimeslotRoom).where(TimeslotRoom.room_id == room_id))
     session.execute(delete(Room).where(Room.id == room_id))
     session.flush()
 
@@ -104,22 +82,9 @@ def edit_timeslot(session: Session, timeslot_id: int, *, name: str,
 
 def delete_timeslot(session: Session, timeslot_id: int) -> None:
     session.execute(delete(Placement).where(Placement.timeslot_id == timeslot_id))
-    session.execute(delete(TimeslotRoom).where(TimeslotRoom.timeslot_id == timeslot_id))
     session.execute(delete(Timeslot).where(Timeslot.id == timeslot_id))
     session.flush()
 
-
-def set_present(session: Session, *, round_id: int, participant_id: int,
-                present: bool) -> None:
-    rp = session.scalar(select(RoundParticipant).where(
-        RoundParticipant.round_id == round_id,
-        RoundParticipant.participant_id == participant_id))
-    if rp is None:
-        session.add(RoundParticipant(round_id=round_id, participant_id=participant_id,
-                                     present=present))
-    else:
-        rp.present = present
-    session.flush()
 
 
 # ---- solving ---------------------------------------------------------------
@@ -194,16 +159,11 @@ def set_pin(session: Session, placement_id: int, pinned: bool) -> None:
     session.flush()
 
 
-def drop_placement(session: Session, placement_id: int) -> None:
-    session.delete(session.get(Placement, placement_id))
-    session.flush()
-
-
-def move_placement(session: Session, placement_id: int, *, timeslot_id: int,
-                   room_id: int) -> None:
-    p = session.get(Placement, placement_id)
-    p.timeslot_id = timeslot_id
-    p.room_id = room_id
+def remove_session(session: Session, proposal_id: int) -> None:
+    """Retire a session and take it off the grid. Generate never places a retired
+    session, so the removal sticks until it is restored."""
+    session.execute(delete(Placement).where(Placement.proposal_id == proposal_id))
+    session.get(Proposal, proposal_id).status = "retired"
     session.flush()
 
 
@@ -223,8 +183,40 @@ def pin_started_placements(session: Session, round_id: int) -> int:
     return n
 
 
-def force_place(session: Session, *, timeslot_id: int, room_id: int,
-                proposal_id: int) -> Placement:
+def place(session: Session, *, timeslot_id: int, room_id: int,
+          proposal_id: int) -> Placement:
+    """Hand placement (pinned). The cell's old session goes back to the pool, and
+    the session moves if it was already placed elsewhere in the round.
+
+    Raises ValueError (and changes nothing) if it would put a host in two
+    sessions in one timeslot."""
+    ts = session.get(Timeslot, timeslot_id)
+    placements = _placements(session, ts.round_id)
+    target = next((pl for pl in placements
+                   if (pl.timeslot_id, pl.room_id) == (timeslot_id, room_id)), None)
+    current = next((pl for pl in placements if pl.proposal_id == proposal_id), None)
+    if target is not None and target is current:
+        target.pinned = True
+        session.flush()
+        return target
+
+    def hosts(pid: int) -> set[int]:
+        return set(session.scalars(select(ProposalRunner.participant_id).where(
+            ProposalRunner.proposal_id == pid)))
+    mine = hosts(proposal_id)
+    for pl in placements:
+        if pl.timeslot_id != timeslot_id or pl is target or pl is current:
+            continue
+        clash = mine & hosts(pl.proposal_id)
+        if clash:
+            who = ", ".join(sorted(session.get(Participant, u).display_name for u in clash))
+            title = session.get(Proposal, pl.proposal_id).title
+            raise ValueError(f"{who} already hosts “{title}” in {ts.name}.")
+
+    for pl in (target, current):
+        if pl is not None:
+            session.delete(pl)
+    session.flush()
     p = Placement(timeslot_id=timeslot_id, room_id=room_id, proposal_id=proposal_id,
                   pinned=True)
     session.add(p); session.flush()
@@ -233,90 +225,13 @@ def force_place(session: Session, *, timeslot_id: int, room_id: int,
 
 # ---- publish / clocks ------------------------------------------------------
 
-def _validate_rooms(session: Session, round_id: int) -> None:
-    for p in _placements(session, round_id):
-        ok = session.scalar(select(TimeslotRoom).where(
-            TimeslotRoom.timeslot_id == p.timeslot_id,
-            TimeslotRoom.room_id == p.room_id))
-        if ok is None:
-            ts = session.get(Timeslot, p.timeslot_id)
-            room = session.get(Room, p.room_id)
-            raise ValueError(
-                f"placement of room {room.name!r} not available in slot {ts.name!r}")
-
-
-def _snapshot_payload(session: Session, round_id: int) -> tuple[str, str]:
-    result = evaluate_current(session, round_id)
-    event_id = session.get(Round, round_id).event_id
-    names = {u.id: u.display_name for u in session.scalars(
-        select(Participant).where(Participant.event_id == event_id))}
-    titles = {p.id: p.title for p in session.scalars(
-        select(Proposal).where(Proposal.event_id == event_id))}
-    rooms = {r.id: r.name for r in session.scalars(
-        select(Room).where(Room.event_id == event_id))}
-    slots = {t.id: t.name for t in session.scalars(
-        select(Timeslot).where(Timeslot.round_id == round_id))}
-    grid = [{
-        "timeslot_id": pl.slot_id, "timeslot": slots.get(pl.slot_id),
-        "room_id": pl.room_id, "room": rooms.get(pl.room_id),
-        "proposal_id": pl.candidate_id, "title": titles.get(pl.candidate_id),
-        "seated_guests": pl.seated_guests, "capacity": pl.capacity,
-        "overflow": pl.overflow,
-    } for pl in result.placements]
-    stats = {
-        "total_interest": result.total_interest,
-        "coverage_pct": {slots.get(k, k): v for k, v in result.coverage_pct.items()},
-        "left_out": {slots.get(k, k): [names.get(u, u) for u in v]
-                     for k, v in result.left_out.items()},
-    }
-    return json.dumps(stats), json.dumps(grid)
-
-
-def publish(session: Session, round_id: int) -> RoundSnapshot:
-    """(Re)publish: freeze the current grid into a snapshot that becomes what
-    attendees see. Keeps a single snapshot per round, so calling again refreshes
-    it (used to push post-publish edits live)."""
-    _validate_rooms(session, round_id)
-    stats_json, grid_json = _snapshot_payload(session, round_id)
-    session.execute(delete(RoundSnapshot).where(RoundSnapshot.round_id == round_id))
-    snap = RoundSnapshot(round_id=round_id, stats_json=stats_json, grid_json=grid_json,
-                         published_at=datetime.now(timezone.utc))
-    session.add(snap)
+def publish(session: Session, round_id: int) -> None:
+    """Show the round to attendees. They see the live grid, so later edits are
+    visible at once."""
     rnd = session.get(Round, round_id)
     rnd.status = "published"
     rnd.published_at = datetime.now(timezone.utc)
     session.flush()
-    return snap
-
-
-def published_snapshot(session: Session, round_id: int) -> RoundSnapshot | None:
-    return session.scalar(select(RoundSnapshot).where(
-        RoundSnapshot.round_id == round_id).order_by(RoundSnapshot.id.desc()))
-
-
-def _current_lineup(session: Session, round_id: int) -> set:
-    """The live (timeslot, room, proposal, title) tuples actually placed now."""
-    event_id = session.get(Round, round_id).event_id
-    titles = {p.id: p.title for p in session.scalars(
-        select(Proposal).where(Proposal.event_id == event_id))}
-    ts_ids = [t.id for t in session.scalars(
-        select(Timeslot).where(Timeslot.round_id == round_id))]
-    out = set()
-    if ts_ids:
-        for pl in session.scalars(select(Placement).where(Placement.timeslot_id.in_(ts_ids))):
-            out.add((pl.timeslot_id, pl.room_id, pl.proposal_id, titles.get(pl.proposal_id)))
-    return out
-
-
-def published_drift(session: Session, round_id: int) -> bool:
-    """True if the live lineup differs from what was published (so attendees would
-    see something other than the published schedule once it's re-published)."""
-    snap = published_snapshot(session, round_id)
-    if snap is None:
-        return False
-    snap_set = {(e["timeslot_id"], e["room_id"], e["proposal_id"], e.get("title"))
-                for e in json.loads(snap.grid_json)}
-    return _current_lineup(session, round_id) != snap_set
 
 
 def any_clock_started(session: Session, round_id: int) -> bool:
@@ -327,16 +242,10 @@ def any_clock_started(session: Session, round_id: int) -> bool:
 def unpublish(session: Session, round_id: int) -> None:
     if any_clock_started(session, round_id):
         raise ValueError("cannot unpublish after a timeslot clock has started")
-    session.execute(delete(RoundSnapshot).where(RoundSnapshot.round_id == round_id))
     session.get(Round, round_id).status = "collecting"
     session.flush()
 
 
 def start_timeslot(session: Session, timeslot_id: int) -> None:
     session.get(Timeslot, timeslot_id).started_at = datetime.now(timezone.utc)
-    session.flush()
-
-
-def archive(session: Session, round_id: int) -> None:
-    session.get(Round, round_id).status = "archived"
     session.flush()

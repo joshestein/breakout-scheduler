@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from app.webapp import create_app
 from app.config import Settings
-from app.models import Event, Room, Round, Timeslot, RoundSnapshot, Proposal
+from app.models import Event, Room, Round, Timeslot, Proposal, Placement
 
 
 @pytest.fixture
@@ -47,8 +47,7 @@ def test_full_lifecycle(app):
     with sf() as s:
         rnd = s.scalar(select(Round))
     admin.post("/admin/timeslot", headers={"X-CSRFToken": csrf},
-               data={"round_id": str(rnd.id), "name": "14:00", "duration_minutes": "45",
-                     "room_ids": [str(rid) for rid in room_ids]})
+               data={"round_id": str(rnd.id), "name": "14:00", "duration_minutes": "45"})
     with sf() as s:
         ts = s.scalar(select(Timeslot))
 
@@ -81,7 +80,6 @@ def test_full_lifecycle(app):
     assert r.status_code == 200
     with sf() as s:
         assert s.scalar(select(Round)).status == "published"
-        assert s.scalar(select(RoundSnapshot)) is not None
 
     # start the clock, then a participant sees the published grid with a highlight
     _post(admin, "/admin/timeslot-start", csrf, {"round_id": rnd.id, "timeslot_id": ts.id})
@@ -89,10 +87,6 @@ def test_full_lifecycle(app):
     assert "AI safety" in pub and "→ you" in pub
     # countdown timestamp must be UTC-explicit so browsers don't misparse as local
     assert "+00:00" in pub
-
-    # archive lists the published round
-    arc = admin.get("/admin/archive").text
-    assert "Block 1" in arc
 
 
 def test_participant_cannot_reach_admin(app):
@@ -140,7 +134,7 @@ def test_cross_event_idor_blocked(app):
                     headers={"X-CSRFToken": csrf}, follow_redirects=False)
     assert r.status_code == 404
     # B's admin cannot retire A's proposal
-    r = adminB.post("/admin/retire", data={"round_id": a_round, "proposal_id": a_prop},
+    r = adminB.post("/admin/remove", data={"round_id": a_round, "proposal_id": a_prop},
                     headers={"X-CSRFToken": csrf}, follow_redirects=False)
     assert r.status_code == 404
     # B's admin cannot force-place using A's room (room IDOR)
@@ -151,8 +145,7 @@ def test_cross_event_idor_blocked(app):
         b_round = s.scalar(select(Round).where(Round.event_id != eventA_id)).id
         b_room = s.scalar(select(Room).where(Room.event_id != eventA_id)).id
     adminB.post("/admin/timeslot", headers={"X-CSRFToken": csrf},
-                data={"round_id": b_round, "name": "x", "duration_minutes": "45",
-                      "room_ids": [str(b_room)]})
+                data={"round_id": b_round, "name": "x", "duration_minutes": "45"})
     with sf() as s:
         b_ts = s.scalar(select(Timeslot).where(Timeslot.round_id == b_round)).id
     r = adminB.post("/admin/force-place", headers={"X-CSRFToken": csrf},
@@ -171,26 +164,6 @@ def test_cross_event_idor_blocked(app):
     assert r.status_code in (400, 404)   # 404 (proposal not in B's event) blocks it first
 
 
-def test_merge_cycle_returns_400_not_500(app):
-    csrf = _csrf(TestClient(app))
-    admin = TestClient(app)
-    _post(admin, "/events", csrf, {"name": "R", "participant_code": "p", "admin_code": "a",
-                                   "admin_name": "Org", "rooms": "Lib, 10"})
-    _post(admin, "/admin/round", csrf, {"name": "B1"})
-    sf = app.state.session_factory
-    with sf() as s:
-        rid = s.scalar(select(Round)).id
-    _post(admin, "/admin/add-session", csrf, {"round_id": rid, "title": "A"})
-    _post(admin, "/admin/add-session", csrf, {"round_id": rid, "title": "B"})
-    with sf() as s:
-        ids = [p.id for p in s.scalars(select(Proposal))]
-    _post(admin, "/admin/merge", csrf, {"round_id": rid, "source_id": ids[1], "target_id": ids[0]})
-    # now merging A into B would create a cycle -> service raises ValueError -> 400
-    r = admin.post("/admin/merge", data={"round_id": rid, "source_id": ids[0], "target_id": ids[1]},
-                   headers={"X-CSRFToken": csrf}, follow_redirects=False)
-    assert r.status_code == 400
-
-
 def test_htmx_partial_and_diagnostics(app):
     csrf = _csrf(TestClient(app))
     admin = TestClient(app)
@@ -205,8 +178,7 @@ def test_htmx_partial_and_diagnostics(app):
     assert "Add your first timeslot" in admin.get(f"/admin?round_id={rid}").text
 
     admin.post("/admin/timeslot", headers={"X-CSRFToken": csrf},
-               data={"round_id": rid, "name": "14:00", "duration_minutes": "45",
-                     "room_ids": [str(room_id)]})
+               data={"round_id": rid, "name": "14:00", "duration_minutes": "45"})
 
     # an htmx POST returns the console *partial* (no full HTML doc), not a redirect
     r = admin.post("/admin/add-session", data={"round_id": rid, "title": "Lonely topic"},
@@ -239,7 +211,7 @@ def test_join_link_and_state_aware_default(app):
         rid = s.scalar(select(Round)).id
         room_id = s.scalar(select(Room)).id
     admin.post("/admin/timeslot", headers={"X-CSRFToken": csrf},
-               data={"round_id": rid, "name": "14:00", "room_ids": [str(room_id)]})
+               data={"round_id": rid, "name": "14:00"})
     part = TestClient(app)
     _post(part, "/enter", csrf, {"code": "joinme", "name": "Sam"})
     _post(part, "/propose", csrf, {"title": "AI safety"})
@@ -304,7 +276,7 @@ def test_room_timeslot_edit_delete_routes(app):
         rid = s.scalar(select(Round)).id
         rooms = [r.id for r in s.scalars(select(Room))]
     admin.post("/admin/timeslot", headers={"X-CSRFToken": csrf},
-               data={"round_id": rid, "name": "14:00", "room_ids": [str(rooms[0])]})
+               data={"round_id": rid, "name": "14:00"})
     with sf() as s:
         ts = s.scalar(select(__import__("app.models", fromlist=["Timeslot"]).Timeslot)).id
 
@@ -493,7 +465,7 @@ def test_cross_round_placement_rejected_same_event(app):
     _post(admin, "/admin/round", csrf, {"name": "R2"})
     r2 = app_round_id(sf)
     _post(admin, "/admin/timeslot", csrf, {"round_id": r2, "name": "x",
-                                           "duration_minutes": "45", "room_ids": [str(room)]})
+                                           "duration_minutes": "45"})
     with sf() as s:
         ts2 = s.scalar(select(Timeslot).where(Timeslot.round_id == r2)).id
     r = admin.post("/admin/force-place", headers={"X-CSRFToken": csrf},
@@ -502,7 +474,7 @@ def test_cross_round_placement_rejected_same_event(app):
     assert r.status_code == 400
 
 
-def test_force_place_rejects_second_placement_of_same_session(app):
+def test_place_by_hand_moves_replaces_and_remove_sticks(app):
     csrf = _csrf(TestClient(app)); admin = TestClient(app)
     _post(admin, "/events", csrf, {"name": "R", "participant_code": "p", "admin_code": "a",
                                    "admin_name": "Org", "rooms": "Lib, 10\nHall, 10"})
@@ -512,7 +484,7 @@ def test_force_place_rejects_second_placement_of_same_session(app):
     with sf() as s:
         room_ids = [str(r.id) for r in s.scalars(select(Room))]
     _post(admin, "/admin/timeslot", csrf, {"round_id": rid, "name": "A",
-                                           "duration_minutes": "45", "room_ids": room_ids})
+                                           "duration_minutes": "45"})
     c1 = TestClient(app); _post(c1, "/enter", csrf, {"code": "p", "name": "Sam"})
     _post(c1, "/propose", csrf, {"title": "Topic"})
     with sf() as s:
@@ -522,11 +494,47 @@ def test_force_place_rejects_second_placement_of_same_session(app):
         return admin.post("/admin/force-place", headers={"X-CSRFToken": csrf},
                           data={"round_id": rid, "timeslot_id": ts, "room_id": room,
                                 "proposal_id": pid}, follow_redirects=False)
+    def cells():
+        with sf() as s:
+            return sorted((p.room_id, p.proposal_id, p.pinned) for p in s.scalars(select(Placement)))
     assert place(room_ids[0]).status_code in (200, 303)
-    assert place(room_ids[1]).status_code == 409
+    assert cells() == [(int(room_ids[0]), pid, True)]
+    # placing the same session elsewhere moves it (never two placements)
+    assert place(room_ids[1]).status_code in (200, 303)
+    assert cells() == [(int(room_ids[1]), pid, True)]
+    # an unplaced session on a filled cell replaces it (the old one goes to the pool).
+    # A different host proposes it: one host can't run both in the same slot.
+    c2 = TestClient(app); _post(c2, "/enter", csrf, {"code": "p", "name": "Kim"})
+    _post(c2, "/propose", csrf, {"title": "Other"})
+    with sf() as s:
+        other = s.scalar(select(Proposal).where(Proposal.title == "Other")).id
+    admin.post("/admin/force-place", headers={"X-CSRFToken": csrf},
+               data={"round_id": rid, "timeslot_id": ts, "room_id": room_ids[1],
+                     "proposal_id": other}, follow_redirects=False)
+    assert cells() == [(int(room_ids[1]), other, True)]
+    # a placed session onto another filled cell moves there; the old one goes to the pool
+    place(room_ids[0])
+    assert cells() == [(int(room_ids[0]), pid, True), (int(room_ids[1]), other, True)]
+    admin.post("/admin/force-place", headers={"X-CSRFToken": csrf},
+               data={"round_id": rid, "timeslot_id": ts, "room_id": room_ids[0],
+                     "proposal_id": other}, follow_redirects=False)
+    assert cells() == [(int(room_ids[0]), other, True)]
+    place(room_ids[1])
+    # remove sticks: the session leaves the grid, can't be placed, and comes back on restore
+    _post(admin, "/admin/remove", csrf, {"round_id": rid, "proposal_id": other})
+    assert cells() == [(int(room_ids[1]), pid, True)]
+    assert admin.post("/admin/force-place", headers={"X-CSRFToken": csrf},
+                      data={"round_id": rid, "timeslot_id": ts, "room_id": room_ids[1],
+                            "proposal_id": other}, follow_redirects=False).status_code == 400
+    _post(admin, "/admin/solve", csrf, {"round_id": rid})
+    assert all(p != other for _, p, _ in cells())
+    _post(admin, "/admin/restore", csrf, {"round_id": rid, "proposal_id": other})
+    assert admin.post("/admin/force-place", headers={"X-CSRFToken": csrf},
+                      data={"round_id": rid, "timeslot_id": ts, "room_id": room_ids[0],
+                            "proposal_id": other}, follow_redirects=False).status_code in (200, 303)
 
 
-def test_description_optional_and_admin_toggle(app):
+def test_description_is_stored(app):
     csrf = _csrf(TestClient(app)); admin = TestClient(app)
     _post(admin, "/events", csrf, {"name": "R", "participant_code": "p", "admin_code": "a",
                                    "admin_name": "Org", "rooms": "Lib, 10"})
@@ -534,15 +542,9 @@ def test_description_optional_and_admin_toggle(app):
     sf = app.state.session_factory
     rid = app_round_id(sf)
     c1 = TestClient(app); _post(c1, "/enter", csrf, {"code": "p", "name": "Sam"})
-    # descriptions on by default → stored
     _post(c1, "/propose", csrf, {"title": "With desc", "description": "about widgets"})
     with sf() as s:
         assert s.scalar(select(Proposal).where(Proposal.title == "With desc")).description == "about widgets"
-    # admin disables descriptions for the event
-    _post(admin, "/admin/event-descriptions", csrf, {"round_id": rid, "enabled": "0"})
-    _post(c1, "/propose", csrf, {"title": "No desc", "description": "should be dropped"})
-    with sf() as s:
-        assert s.scalar(select(Proposal).where(Proposal.title == "No desc")).description is None
 
 
 def test_no_interest_rater_shown_in_console(app):
@@ -560,39 +562,32 @@ def test_no_interest_rater_shown_in_console(app):
     pat = TestClient(app); _post(pat, "/enter", csrf, {"code": "p", "name": "Pat"})
     _post(pat, "/rate", csrf, {"proposal_id": pid, "stars": 2})   # "rather not" — wants nothing
     html = admin.get("/admin?round_id=%d" % rid).text
-    assert "didn't find any sessions interesting" in html
+    assert "rated every session ★1–2" in html
     assert "Pat" in html
 
 
-def test_published_view_frozen_until_republish(app):
+def test_published_view_shows_live_grid(app):
     csrf = _csrf(TestClient(app)); admin = TestClient(app)
     _post(admin, "/events", csrf, {"name": "R", "participant_code": "p", "admin_code": "a",
                                    "admin_name": "Org", "rooms": "Lib, 10"})
-    _post(admin, "/admin/round", csrf, {"name": "R1"})
+    _post(admin, "/admin/round", csrf, {"name": "R1", "min_interest": 1})
     sf = app.state.session_factory
     rid = app_round_id(sf)
-    with sf() as s:
-        room = s.scalar(select(Room)).id
-    _post(admin, "/admin/timeslot", csrf, {"round_id": rid, "name": "14:00",
-                                           "duration_minutes": "45", "room_ids": [str(room)]})
+    _post(admin, "/admin/timeslot", csrf, {"round_id": rid, "name": "14:00", "duration_minutes": "45"})
     c1 = TestClient(app); _post(c1, "/enter", csrf, {"code": "p", "name": "Sam"})
     _post(c1, "/propose", csrf, {"title": "Original"})
     with sf() as s:
         pid = s.scalar(select(Proposal).where(Proposal.title == "Original")).id
-    _post(c1, "/rate", csrf, {"proposal_id": pid, "stars": 5})
+    c2 = TestClient(app); _post(c2, "/enter", csrf, {"code": "p", "name": "Kim"})
+    _post(c2, "/rate", csrf, {"proposal_id": pid, "stars": 5})
     _post(admin, "/admin/solve", csrf, {"round_id": rid})
+    assert "Original" not in TestClient(app).get("/s/p").text   # not published yet
     _post(admin, "/admin/publish", csrf, {"round_id": rid})
     assert "Original" in TestClient(app).get("/s/p").text
-    # admin renames after publishing — attendees must NOT see it change yet
+    # an edit after publishing is visible at once, in the grid and the Markdown
     _post(admin, "/admin/proposal-edit", csrf, {"round_id": rid, "proposal_id": pid, "title": "Renamed"})
     page = TestClient(app).get("/s/p").text
-    assert "Original" in page and "Renamed" not in page
-    # the console warns about the drift
-    assert "changes since you published" in admin.get("/admin?round_id=%d" % rid).text
-    # re-publishing pushes the change live
-    _post(admin, "/admin/publish", csrf, {"round_id": rid})
-    assert "Renamed" in TestClient(app).get("/s/p").text
-
+    assert "Renamed" in page and "Original" not in page
 
 def test_bad_csrf_rejected(app):
     admin = TestClient(app)
@@ -601,26 +596,47 @@ def test_bad_csrf_rejected(app):
     assert resp.status_code == 400
 
 
-def test_archive_shows_fill_for_snapshots_before_rename(app):
-    # snapshots published before seated_guests existed store projected_attendance
-    import json
+def test_console_explains_cards_and_unplaced_sessions(app):
     csrf = _csrf(TestClient(app)); admin = TestClient(app)
     _post(admin, "/events", csrf, {"name": "R", "participant_code": "p", "admin_code": "a",
                                    "admin_name": "Org", "rooms": "Lib, 10"})
-    _post(admin, "/admin/round", csrf, {"name": "R1"})
+    _post(admin, "/admin/round", csrf, {"name": "R1", "min_interest": 1})
     sf = app.state.session_factory
-    with sf() as s:
-        s.add(RoundSnapshot(round_id=app_round_id(sf), stats_json='{"total_interest": 0}',
-                            grid_json=json.dumps([{
-                                "timeslot": "14:00", "room": "Lib", "title": "Old",
-                                "projected_attendance": 7, "capacity": 10, "overflow": 0}])))
-        s.commit()
-    assert "7/10" in admin.get("/admin/archive").text
+    rid = app_round_id(sf)
+    _post(admin, "/admin/timeslot", csrf, {"round_id": rid, "name": "14:00", "duration_minutes": "45"})
+
+    def person(name):
+        c = TestClient(app); _post(c, "/enter", csrf, {"code": "p", "name": name}); return c
+
+    def pid(title):
+        with sf() as s:
+            return s.scalar(select(Proposal).where(Proposal.title == title)).id
+
+    ann, bob = person("Ann"), person("Bob")
+    _post(ann, "/propose", csrf, {"title": "Alpha"})
+    _post(ann, "/propose", csrf, {"title": "Delta"})                     # Ann hosts both
+    _post(bob, "/propose", csrf, {"title": "Beta", "min_attendees": "2"})
+    _post(admin, "/admin/add-session", csrf, {"round_id": rid, "title": "Gamma"})  # no host
+    for name, title, stars in [("G1", "Alpha", 5), ("G2", "Alpha", 5), ("G3", "Beta", 3),
+                               ("G4", "Gamma", 3), ("G5", "Gamma", 3),
+                               ("G6", "Delta", 3), ("G7", "Delta", 3)]:
+        _post(person(name), "/rate", csrf, {"proposal_id": pid(title), "stars": stars})
+    person("Quiet")                                                       # never rates
+    _post(admin, "/admin/solve", csrf, {"round_id": rid})
+    html = admin.get("/admin?round_id=%d" % rid).text
+
+    # the one room goes to Alpha: it covers Ann (host) + 2 guests, and they rated it ★5
+    assert "host: Ann" in html and "2 seated / 10 seats" in html and "★5×2" in html
+    assert "1 want it, needs 2" in html                 # Beta: below its own minimum
+    assert "host busy: Ann runs Alpha" in html          # Delta: its host is in Alpha
+    assert "not picked: 2 want it" in html              # Gamma: lost the only room
+    assert "3 of 9 have a session" in html              # Ann + G1 + G2, of the 2 hosts + 7 raters
+    assert "Quiet" in html and "haven" in html          # non-raters are listed
 
 
 def test_console_badge_uses_clamped_floor(app):
     # round minimum 2, host caps the workshop at 1 guest, 1 guest is keen: it can run,
-    # so the console must not say "won't run"
+    # so the pool must not say it is below its minimum
     csrf = _csrf(TestClient(app)); admin = TestClient(app)
     _post(admin, "/events", csrf, {"name": "R", "participant_code": "p", "admin_code": "a",
                                    "admin_name": "Org", "rooms": "Lib, 10"})
@@ -634,4 +650,78 @@ def test_console_badge_uses_clamped_floor(app):
     guest = TestClient(app); _post(guest, "/enter", csrf, {"code": "p", "name": "Guest"})
     _post(guest, "/rate", csrf, {"proposal_id": pid, "stars": 5})
     html = admin.get(f"/admin?round_id={rid}").text
-    assert "Tiny" in html and "won't run" not in html
+    assert "Tiny" in html and "1 want it, needs 1" not in html and "needs 2" not in html
+    assert "not picked: 1 want it" in html
+
+
+def _two_room_round(app, csrf, admin, slots=("14:00",)):
+    _post(admin, "/events", csrf, {"name": "R", "participant_code": "p", "admin_code": "a",
+                                   "admin_name": "Org", "rooms": "Lib, 10\nDen, 10"})
+    _post(admin, "/admin/round", csrf, {"name": "R1", "min_interest": 1})
+    sf = app.state.session_factory
+    rid = app_round_id(sf)
+    for name in slots:
+        _post(admin, "/admin/timeslot", csrf, {"round_id": rid, "name": name, "duration_minutes": "45"})
+    with sf() as s:
+        rooms = [r.id for r in s.scalars(select(Room).order_by(Room.id))]
+        ts = [t.id for t in s.scalars(select(Timeslot).order_by(Timeslot.position))]
+    return sf, rid, rooms, ts
+
+
+def test_place_refuses_host_clash(app):
+    csrf = _csrf(TestClient(app)); admin = TestClient(app)
+    sf, rid, rooms, ts = _two_room_round(app, csrf, admin, slots=("14:00", "15:00"))
+    ann = TestClient(app); _post(ann, "/enter", csrf, {"code": "p", "name": "Ann"})
+    _post(ann, "/propose", csrf, {"title": "A1"}); _post(ann, "/propose", csrf, {"title": "A2"})
+    with sf() as s:
+        ids = {p.title: p.id for p in s.scalars(select(Proposal))}
+
+    def place(t, room, title):
+        return admin.post("/admin/force-place", headers={"X-CSRFToken": csrf},
+                          data={"round_id": rid, "timeslot_id": t, "room_id": room,
+                                "proposal_id": ids[title]}, follow_redirects=False)
+    assert place(ts[0], rooms[0], "A1").status_code in (200, 303)
+    r = place(ts[0], rooms[1], "A2")                     # Ann can't host both at 14:00
+    assert r.status_code == 409 and "Ann already hosts" in r.json()["detail"]
+    assert place(ts[1], rooms[1], "A2").status_code in (200, 303)   # 15:00 is fine
+    # placing a session in the cell it already has just pins it
+    with sf() as s:
+        a2 = s.scalar(select(Placement).where(Placement.proposal_id == ids["A2"]))
+        a2.pinned = False; s.commit()
+    assert place(ts[1], rooms[1], "A2").status_code in (200, 303)
+    with sf() as s:
+        assert s.scalar(select(Placement).where(Placement.proposal_id == ids["A2"])).pinned
+    with sf() as s:
+        assert {(p.timeslot_id, p.proposal_id) for p in s.scalars(select(Placement))} == {
+            (ts[0], ids["A1"]), (ts[1], ids["A2"])}
+
+
+def test_broken_grid_shows_banner_and_real_titles(app):
+    # a grid the rules forbid (a host in two sessions at once, written straight to the
+    # DB) must not show made-up counts or "?" titles
+    csrf = _csrf(TestClient(app)); admin = TestClient(app)
+    sf, rid, rooms, ts = _two_room_round(app, csrf, admin)
+    ann = TestClient(app); _post(ann, "/enter", csrf, {"code": "p", "name": "Ann"})
+    _post(ann, "/propose", csrf, {"title": "A1"}); _post(ann, "/propose", csrf, {"title": "A2"})
+    with sf() as s:
+        for room, p in zip(rooms, s.scalars(select(Proposal).order_by(Proposal.id))):
+            s.add(Placement(timeslot_id=ts[0], room_id=room, proposal_id=p.id, pinned=True))
+        s.commit()
+    html = admin.get("/admin?round_id=%d" % rid).text
+    assert "breaks a rule" in html and "A1" in html and "A2" in html
+    assert "have a session" not in html
+
+
+def test_removed_session_fans_still_counted(app):
+    # Kim wanted only Gone; after Gone is removed Kim must still show up somewhere
+    csrf = _csrf(TestClient(app)); admin = TestClient(app)
+    sf, rid, rooms, ts = _two_room_round(app, csrf, admin)
+    _post(admin, "/admin/add-session", csrf, {"round_id": rid, "title": "Gone"})
+    with sf() as s:
+        gone = s.scalar(select(Proposal).where(Proposal.title == "Gone")).id
+    kim = TestClient(app); _post(kim, "/enter", csrf, {"code": "p", "name": "Kim"})
+    _post(kim, "/rate", csrf, {"proposal_id": gone, "stars": 5})
+    _post(admin, "/admin/remove", csrf, {"round_id": rid, "proposal_id": gone})
+    html = admin.get("/admin?round_id=%d" % rid).text
+    assert "haven't rated · 1" in html and "Kim" in html
+

@@ -20,10 +20,8 @@
     <details class="propose-opts">
       <summary>session options</summary>
       <div class="opt-grid">
-        {% if event.descriptions_enabled %}
         <label class="opt-desc">Description <span class="tiny dim">(optional)</span>
           <textarea name="description" rows="2" maxlength="1000" placeholder="A sentence on what it's about…"></textarea></label>
-        {% endif %}
         <label>Only run if at least
           <input name="min_attendees" type="number" min="1" max="999" inputmode="numeric" placeholder="—"> people besides me come</label>
         <label>Cap attendance at

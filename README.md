@@ -20,24 +20,25 @@ hosts many events, each with its own codes, rooms, and rounds.
 - **Participants** enter an event code + their name, propose breakouts, give each a
   **1–5 star** rating, and toggle **"I'm running this"** (which means they must be
   present at it). A proposal is just a title by default; under optional settings a
-  proposer can add a short description (if the organizer allows it), cap or floor
+  proposer can add a short description, cap or floor
   attendance (a max for an intimate workshop, a min below which it shouldn't run).
   They get a mobile schedule with their personal
   "→ go here" pick per timeslot, plus optional **web-push alerts** before a session
   ends (with a countdown once a timeslot's clock is running).
-- **Organizers** enter the admin code and get a dense console: the live schedule grid, and a "consequences" panel showing per-slot coverage %, who's
-  left out, who found nothing they'd attend, the share who got a most-preferred
-  session, capacity overflows, and the top unplaced sessions. They **Generate** a
-  schedule, pin/drop/move placements and re-solve around pins, tune per-session
-  settings, then **Publish**, which freezes the lineup
-  attendees see (later edits stay private until you re-publish). The schedule can be
-  copied as **Markdown** for Slack/Discord or opened as a **projector view**, and each
-  timeslot has a **Start clock** that drives participant countdowns and pre-end alerts.
+- **Organizers** enter the admin code and get a console with the live schedule grid.
+  Each card says who hosts it, how many are seated, and how many want it. Each session
+  not on the grid says why. A side panel counts people: how many have a session in
+  each slot, who is left out and why, and who has not rated yet. They **Generate** a
+  schedule, then pin, swap, move, or remove sessions by hand (a removed session stays
+  out until restored), and **Publish**. Attendees then see the live grid. The schedule
+  can be copied as **Markdown** for Slack/Discord or opened as a **projector view**,
+  and each timeslot has a **Start clock** that drives participant countdowns and
+  pre-end alerts.
 - The solver minimizes people left out, then maximizes interest points (★3 = 1, ★4 = 2,
   ★5 = 3; hosts get none for their own session), then prefers the earlier proposal. It
   respects room capacity (a hard seat cap; over-subscription is routed to next-best
-  sessions), a minimum number of non-host attendees, and runner presence. The proposal pool churns round to round, and every
-  published round is archived.
+  sessions), a minimum number of non-host attendees, and runner presence. Every room
+  is used in every timeslot. The proposal pool churns round to round.
 
 ## Quickstart (Docker)
 

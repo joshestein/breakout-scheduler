@@ -1,18 +1,13 @@
-import pytest
-
-from app.models import (Event, Room, Participant, Proposal, ProposalRunner, Rating,
-                        Round, RoundParticipant, Timeslot, TimeslotRoom)
+from app.models import Event, Room, Participant, Proposal, ProposalRunner, Rating, Round, Timeslot
 from app.solver_input import build_problem, eligibility
-from app.merge_util import merge_root
 
 
 def _base_event(s):
     e = Event(name="R", participant_code="p", admin_code="a"); s.add(e); s.flush()
     room = Room(event_id=e.id, name="Library", capacity=10); s.add(room); s.flush()
-    rnd = Round(event_id=e.id, name="Round 1", lambda_fairness=3.0, min_interest=1)
+    rnd = Round(event_id=e.id, name="Round 1", min_interest=1)
     s.add(rnd); s.flush()
     ts = Timeslot(round_id=rnd.id, name="Slot A", position=0); s.add(ts); s.flush()
-    s.add(TimeslotRoom(timeslot_id=ts.id, room_id=room.id)); s.flush()
     return e, room, rnd, ts
 
 
@@ -21,7 +16,7 @@ def _participant(s, e, name):
     return u
 
 
-def test_only_active_unmerged_become_candidates(session):
+def test_only_active_become_candidates(session):
     s = session
     e, room, rnd, ts = _base_event(s)
     u = _participant(s, e, "Sam")
@@ -34,38 +29,26 @@ def test_only_active_unmerged_become_candidates(session):
     assert {c.id for c in p.candidates} == {active.id}
 
 
-def test_merge_folds_max_stars_and_unions_runners(session):
+def test_every_room_is_in_every_slot(session):
     s = session
     e, room, rnd, ts = _base_event(s)
-    u1 = _participant(s, e, "U1"); u2 = _participant(s, e, "U2")
-    a = Proposal(event_id=e.id, round_id=rnd.id, title="A", created_by=u1.id); s.add(a); s.flush()
-    b = Proposal(event_id=e.id, round_id=rnd.id, title="B", created_by=u2.id); s.add(b); s.flush()
-    s.add(Rating(participant_id=u1.id, proposal_id=a.id, stars=3))
-    s.add(Rating(participant_id=u1.id, proposal_id=b.id, stars=5))
-    s.add(ProposalRunner(proposal_id=b.id, participant_id=u2.id)); s.flush()
-    # merge b into a (non-destructive)
-    b.merged_into = a.id; b.status = "retired"; s.flush()
+    den = Room(event_id=e.id, name="Den", capacity=4); s.add(den); s.flush()
+    s.add(Timeslot(round_id=rnd.id, name="Slot B", position=1)); s.flush()
     p = build_problem(s, rnd.id)
-    assert {c.id for c in p.candidates} == {a.id}
-    assert p.stars[(u1.id, a.id)] == 5            # folded max(3,5)
-    assert u2.id in next(c for c in p.candidates if c.id == a.id).runners
+    assert [sl.rooms for sl in p.slots] == [{room.id: 10, den.id: 4}] * 2
 
 
-def test_presence_requires_engaged_and_present_flag(session):
+def test_presence_requires_engagement(session):
     s = session
     e, room, rnd, ts = _base_event(s)
     engaged = _participant(s, e, "Eng")
-    absent = _participant(s, e, "Abs")
     lurker = _participant(s, e, "Lurk")
     a = Proposal(event_id=e.id, round_id=rnd.id, title="A", created_by=engaged.id); s.add(a); s.flush()
     s.add(Rating(participant_id=engaged.id, proposal_id=a.id, stars=5))
-    s.add(Rating(participant_id=absent.id, proposal_id=a.id, stars=5))
     s.add(Rating(participant_id=lurker.id, proposal_id=a.id, stars=2))  # not engaged
-    s.add(RoundParticipant(round_id=rnd.id, participant_id=absent.id, present=False))
     s.flush()
     p = build_problem(s, rnd.id)
     assert engaged.id in p.present
-    assert absent.id not in p.present       # flagged absent
     assert lurker.id not in p.present        # only 2 stars => not engaged
 
 
@@ -78,11 +61,6 @@ def test_min_interest_excludes_runner_only_session(session):
     s.add(ProposalRunner(proposal_id=a.id, participant_id=u.id)); s.flush()
     p = build_problem(s, rnd.id)
     assert all(c.id != a.id for c in p.candidates)   # only 1 interested (the runner)
-
-
-def test_merge_cycle_rejected():
-    with pytest.raises(ValueError):
-        merge_root(1, {1: 2, 2: 1})
 
 
 def test_floor_is_clamped_to_host_cap(session):
@@ -100,47 +78,15 @@ def test_floor_is_clamped_to_host_cap(session):
     assert [c.min_seated for c in p.candidates if c.id == a.id] == [1]
 
 
-def test_eligibility_counts_only_present_non_host_raters(session):
-    # Bob is away, so only Alice counts toward the floor of 2: not eligible
-    s = session
-    e, room, rnd, ts = _base_event(s)
-    rnd.min_interest = 2
-    alice = _participant(s, e, "Alice"); bob = _participant(s, e, "Bob")
-    a = Proposal(event_id=e.id, round_id=rnd.id, title="A", created_by=alice.id)
-    s.add(a); s.flush()
-    s.add(Rating(participant_id=alice.id, proposal_id=a.id, stars=4))
-    s.add(Rating(participant_id=bob.id, proposal_id=a.id, stars=4))
-    s.add(RoundParticipant(round_id=rnd.id, participant_id=bob.id, present=False))
-    s.flush()
-    el = eligibility(s, rnd.id)[a.id]
-    assert (el.interested, el.floor, el.eligible) == (1, 2, False)
-    assert all(c.id != a.id for c in build_problem(s, rnd.id).candidates)
-
-
-def test_eligibility_excludes_host_of_merged_child(session):
-    # Carol hosts B, B is merged into A, Carol rates A: she is a host of A, not a guest
-    s = session
-    e, room, rnd, ts = _base_event(s)
-    carol = _participant(s, e, "Carol")
-    a = Proposal(event_id=e.id, round_id=rnd.id, title="A", created_by=carol.id)
-    b = Proposal(event_id=e.id, round_id=rnd.id, title="B", created_by=carol.id)
-    s.add_all([a, b]); s.flush()
-    s.add(ProposalRunner(proposal_id=b.id, participant_id=carol.id))
-    s.add(Rating(participant_id=carol.id, proposal_id=a.id, stars=4))
-    b.merged_into = a.id; b.status = "retired"; s.flush()
-    assert eligibility(s, rnd.id)[a.id].interested == 0
-
-
-def test_eligibility_hosts_away(session):
+def test_eligibility_ignores_hosts_own_rating(session):
+    # the host rates their own session 5 stars: that does not count toward the floor
     s = session
     e, room, rnd, ts = _base_event(s)
     host = _participant(s, e, "Host"); guest = _participant(s, e, "Guest")
-    a = Proposal(event_id=e.id, round_id=rnd.id, title="A", created_by=host.id)
-    s.add(a); s.flush()
+    a = Proposal(event_id=e.id, round_id=rnd.id, title="A", created_by=host.id); s.add(a); s.flush()
     s.add(ProposalRunner(proposal_id=a.id, participant_id=host.id))
-    s.add(Rating(participant_id=guest.id, proposal_id=a.id, stars=5))
-    s.add(RoundParticipant(round_id=rnd.id, participant_id=host.id, present=False))
-    s.flush()
+    s.add(Rating(participant_id=host.id, proposal_id=a.id, stars=5))
+    s.add(Rating(participant_id=guest.id, proposal_id=a.id, stars=3)); s.flush()
     el = eligibility(s, rnd.id)[a.id]
-    assert el.hosts_away and not el.eligible
+    assert (el.interested, el.floor, el.eligible) == (1, 1, True)
 

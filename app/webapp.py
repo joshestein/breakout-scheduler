@@ -138,8 +138,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.session_alert_sent = set()  # timeslot ids already warned (this process)
     app.state.eval_cache = {}  # round_id -> (fingerprint, Result) for the console grid
     templates = Jinja2Templates(directory=TEMPLATES_DIR)
-    import json as _json
-    templates.env.filters["fromjson"] = _json.loads
 
     def _utciso(dt):
         # stored datetimes come back from SQLite naive but are UTC; emit an explicit

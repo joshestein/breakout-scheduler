@@ -44,11 +44,11 @@ def test_evaluate_current_scores_force_placed_ineligible_session(session):
     s = session; e = _evt(s)
     room = Room(event_id=e.id, name="H", capacity=10); s.add(room); s.flush()
     rnd = RD.create_round(s, event_id=e.id, name="R", min_interest=5)   # high bar
-    ts = RD.add_timeslot(s, round_id=rnd.id, name="A", position=0, room_ids=[room.id])
+    ts = RD.add_timeslot(s, round_id=rnd.id, name="A", position=0)
     u = _p(s, e, "U")
     a = P.propose(s, event_id=e.id, title="X", created_by=u.id, runner=False)
     RT.set_rating(s, participant_id=u.id, proposal_id=a.id, stars=5)    # 1 interested < 5
-    RD.force_place(s, timeslot_id=ts.id, room_id=room.id, proposal_id=a.id)
+    RD.place(s, timeslot_id=ts.id, room_id=room.id, proposal_id=a.id)
     r = RD.evaluate_current(s, rnd.id)
     assert any(pl.candidate_id == a.id for pl in r.placements)
 
@@ -67,7 +67,7 @@ def test_evaluate_current_scores_the_actual_grid_not_a_resolve(session):
     s = session; e = _evt(s)
     room = Room(event_id=e.id, name="Lib", capacity=10); s.add(room); s.flush()
     rnd = RD.create_round(s, event_id=e.id, name="R", min_interest=1)
-    ts = RD.add_timeslot(s, round_id=rnd.id, name="14:00", position=0, room_ids=[room.id])
+    ts = RD.add_timeslot(s, round_id=rnd.id, name="14:00", position=0)
     u = _p(s, e, "Al")
     a = P.propose(s, event_id=e.id, title="AI", created_by=u.id, runner=False)
     RT.set_rating(s, participant_id=u.id, proposal_id=a.id, stars=5)
@@ -86,14 +86,14 @@ def test_min_interest_override(session):
     s = session; e = _evt(s)
     room = Room(event_id=e.id, name="Hall", capacity=10); s.add(room); s.flush()
     rnd = RD.create_round(s, event_id=e.id, name="R1", min_interest=3)
-    RD.add_timeslot(s, round_id=rnd.id, name="A", position=0, room_ids=[room.id])
+    RD.add_timeslot(s, round_id=rnd.id, name="A", position=0)
     u = _p(s, e, "U1")
     a = P.propose(s, event_id=e.id, title="A", created_by=u.id, runner=False)
     RT.set_rating(s, participant_id=u.id, proposal_id=a.id, stars=5)  # only 1 interested
     # default min_interest=3 -> excluded
     assert all(c.id != a.id for c in build_problem(s, rnd.id).candidates)
     # per-session override to 1 -> included
-    P.set_config(s, a.id, min_interest_override=1)
+    a.min_interest_override = 1; s.flush()
     assert any(c.id == a.id for c in build_problem(s, rnd.id).candidates)
 
 
@@ -102,8 +102,8 @@ def test_regenerate_pins_and_preserves_started_sessions(session):
     s = session; e = _evt(s)
     room = Room(event_id=e.id, name="Lib", capacity=10); s.add(room); s.flush()
     rnd = RD.create_round(s, event_id=e.id, name="R", min_interest=1)
-    ts1 = RD.add_timeslot(s, round_id=rnd.id, name="A", position=0, room_ids=[room.id])
-    RD.add_timeslot(s, round_id=rnd.id, name="B", position=1, room_ids=[room.id])
+    ts1 = RD.add_timeslot(s, round_id=rnd.id, name="A", position=0)
+    RD.add_timeslot(s, round_id=rnd.id, name="B", position=1)
     u = _p(s, e, "Al")
     a = P.propose(s, event_id=e.id, title="Talk", created_by=u.id, runner=False)
     RT.set_rating(s, participant_id=u.id, proposal_id=a.id, stars=5)

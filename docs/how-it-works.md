@@ -22,8 +22,8 @@ to attend** in any timeslot — and shows the organizer who *would* be left out,
 can merge or add a session before publishing. It's a general-purpose tool.
 
 A single instance hosts **many events**, each with its own codes, rooms, and rounds.
-Within an event the proposal pool churns round to round (retire old, add new) and every
-published round is archived.
+Within an event the proposal pool churns round to round: each round has its own
+proposals and ratings.
 
 ## Participants
 
@@ -32,7 +32,7 @@ Then they:
 
 - **Propose breakouts.** A proposal is just a title by default. Under optional settings
   a proposer can:
-  - add a short **description** (only when the organizer has enabled descriptions for the event);
+  - add a short **description**;
   - set a **maximum** number of attendees besides the hosts (for an intimate workshop),
     or a **minimum** below which the session shouldn't run (this replaces the round's
     default minimum for that session).
@@ -52,19 +52,23 @@ Organizers enter the admin code and get a dense console:
 
 - A **min people per session** setting: how many people besides the hosts must be seated
   for a session to run (default 2).
-- The live **schedule grid** (timeslots × rooms) with a **Generate** button that runs the solver, and **pin / drop / move /
-  place** controls to hand-tune placements and re-solve around the pins.
-- A **consequences panel** showing, for the current grid: per-slot **coverage %**, who's
-  **left out**, who **found nothing they'd attend**, the share of people who got a
-  **most-preferred** session, **capacity overflows**, and the top **unplaced** sessions.
-- Per-session settings (min/max attendees), **merge** for duplicate proposals, and
-  **edit/delete** of rooms and timeslots.
-- A per-event toggle for whether participants may add **descriptions**.
-- **Publish**, which freezes the lineup attendees see into a snapshot. Edits made after
-  publishing stay private; the console warns that the published schedule has drifted and
-  offers a one-click **re-publish** to push the changes live. Regenerating a published
-  schedule double-confirms, and **protects sessions whose clock has already started** by
-  default.
+- The live **schedule grid** (timeslots × every room) with a **Generate** button that
+  runs the solver. Each card shows the hosts, seats used out of seats, and how many people
+  besides the hosts want it, with a count for each star level. Per-person stars are never
+  shown.
+- Hand edits: **pin** a card so Generate keeps it; **place** any session in any cell (on
+  a filled cell it swaps; a session already on the grid moves); **remove** a session,
+  which takes it off the grid and out of the round until you **restore** it from the pool.
+  Hand-placed sessions are pinned.
+- The **pool** shows, for every session, where it runs or why it does not: below its
+  minimum, its host is busy in every slot, or not picked.
+- A **side panel** that counts people for the current grid: per slot, "N of M have a
+  session", with the left-out people split into "nothing they want runs" and "sessions
+  they want were full"; how many got one of their top-rated sessions; who rated every
+  session ★1–2; and who has not rated yet.
+- **Publish**, which shows the round to attendees. They see the live grid, so edits after
+  publishing show at once. Regenerating a published schedule double-confirms, and
+  **protects sessions whose clock has already started** by default.
 - **Copy as Markdown** (paste the schedule into Slack/Discord), a **projector view**, and
   **QR codes** for the join link.
 - A **Start clock** per timeslot that drives participant countdowns and the pre-end alert.
@@ -98,8 +102,6 @@ subject to:
   set their own. N is lowered to the host's max attendees and to the biggest room, so a
   small workshop can still run. Pinned sessions skip this rule, so a hand edit never
   makes the model unsolvable.
-- **Absent hosts**: a session whose hosts are all marked away does not run. A session
-  with no host (added by the organizer) can still run.
 - **Runner presence**: a session's runner can't be in two places at once, and is seated in
   their own session when it runs.
 - Each session runs **at most once**, in one room and one timeslot.

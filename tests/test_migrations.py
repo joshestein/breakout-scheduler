@@ -28,7 +28,7 @@ def test_alembic_upgrade_head_on_fresh_db():
                 .get_columns("proposals")}
         # columns added across the migration chain are all present
         assert {"round_id", "min_interest_override", "max_attendees"} <= cols
-        assert not {"anonymous", "must_run", "allow_repeat", "needs_space"} & cols
+        assert not {"anonymous", "must_run", "allow_repeat", "needs_space", "merged_into"} & cols
 
 
 def test_migrated_schema_matches_create_all():
@@ -42,7 +42,8 @@ def test_migrated_schema_matches_create_all():
 
         mig = inspect(create_engine(f"sqlite:///{migrated}"))
         new = inspect(fresh)
-        for table in ("proposals", "participants", "timeslot_rooms"):
+        assert set(mig.get_table_names()) - {"alembic_version"} == set(new.get_table_names())
+        for table in new.get_table_names():
             assert ({c["name"] for c in mig.get_columns(table)}
                     == {c["name"] for c in new.get_columns(table)}), table
 
@@ -61,3 +62,4 @@ def test_fresh_file_db_is_stamped_at_head(tmp_path):
     head = ScriptDirectory.from_config(_alembic_cfg(db)).get_current_head()
     with create_engine(f"sqlite:///{db}").connect() as c:
         assert c.exec_driver_sql("select version_num from alembic_version").scalar() == head
+
