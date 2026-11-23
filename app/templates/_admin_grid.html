@@ -18,7 +18,6 @@
             {% endif %}
           </th>
           {% for r in rooms %}
-            {% if r.id in ts_rooms[ts.id] %}
               {% set pl = placements.get((ts.id, r.id)) %}
               {% if pl %}
                 {% set cs = cellstats.get((ts.id, pl.proposal_id)) %}
@@ -44,9 +43,6 @@
                   </form>
                 </td>
               {% endif %}
-            {% else %}
-              <td class="cell na">·</td>
-            {% endif %}
           {% endfor %}
         </tr>
         {% endfor %}

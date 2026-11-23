@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from app.webapp import create_app
 from app.config import Settings
-from app.models import Event, Room, Round, Timeslot, RoundSnapshot, Proposal
+from app.models import Event, Room, Round, Timeslot, Proposal
 
 
 @pytest.fixture
@@ -47,8 +47,7 @@ def test_full_lifecycle(app):
     with sf() as s:
         rnd = s.scalar(select(Round))
     admin.post("/admin/timeslot", headers={"X-CSRFToken": csrf},
-               data={"round_id": str(rnd.id), "name": "14:00", "duration_minutes": "45",
-                     "room_ids": [str(rid) for rid in room_ids]})
+               data={"round_id": str(rnd.id), "name": "14:00", "duration_minutes": "45"})
     with sf() as s:
         ts = s.scalar(select(Timeslot))
 
@@ -81,7 +80,6 @@ def test_full_lifecycle(app):
     assert r.status_code == 200
     with sf() as s:
         assert s.scalar(select(Round)).status == "published"
-        assert s.scalar(select(RoundSnapshot)) is not None
 
     # start the clock, then a participant sees the published grid with a highlight
     _post(admin, "/admin/timeslot-start", csrf, {"round_id": rnd.id, "timeslot_id": ts.id})
@@ -89,10 +87,6 @@ def test_full_lifecycle(app):
     assert "AI safety" in pub and "→ you" in pub
     # countdown timestamp must be UTC-explicit so browsers don't misparse as local
     assert "+00:00" in pub
-
-    # archive lists the published round
-    arc = admin.get("/admin/archive").text
-    assert "Block 1" in arc
 
 
 def test_participant_cannot_reach_admin(app):
@@ -151,8 +145,7 @@ def test_cross_event_idor_blocked(app):
         b_round = s.scalar(select(Round).where(Round.event_id != eventA_id)).id
         b_room = s.scalar(select(Room).where(Room.event_id != eventA_id)).id
     adminB.post("/admin/timeslot", headers={"X-CSRFToken": csrf},
-                data={"round_id": b_round, "name": "x", "duration_minutes": "45",
-                      "room_ids": [str(b_room)]})
+                data={"round_id": b_round, "name": "x", "duration_minutes": "45"})
     with sf() as s:
         b_ts = s.scalar(select(Timeslot).where(Timeslot.round_id == b_round)).id
     r = adminB.post("/admin/force-place", headers={"X-CSRFToken": csrf},
@@ -171,26 +164,6 @@ def test_cross_event_idor_blocked(app):
     assert r.status_code in (400, 404)   # 404 (proposal not in B's event) blocks it first
 
 
-def test_merge_cycle_returns_400_not_500(app):
-    csrf = _csrf(TestClient(app))
-    admin = TestClient(app)
-    _post(admin, "/events", csrf, {"name": "R", "participant_code": "p", "admin_code": "a",
-                                   "admin_name": "Org", "rooms": "Lib, 10"})
-    _post(admin, "/admin/round", csrf, {"name": "B1"})
-    sf = app.state.session_factory
-    with sf() as s:
-        rid = s.scalar(select(Round)).id
-    _post(admin, "/admin/add-session", csrf, {"round_id": rid, "title": "A"})
-    _post(admin, "/admin/add-session", csrf, {"round_id": rid, "title": "B"})
-    with sf() as s:
-        ids = [p.id for p in s.scalars(select(Proposal))]
-    _post(admin, "/admin/merge", csrf, {"round_id": rid, "source_id": ids[1], "target_id": ids[0]})
-    # now merging A into B would create a cycle -> service raises ValueError -> 400
-    r = admin.post("/admin/merge", data={"round_id": rid, "source_id": ids[0], "target_id": ids[1]},
-                   headers={"X-CSRFToken": csrf}, follow_redirects=False)
-    assert r.status_code == 400
-
-
 def test_htmx_partial_and_diagnostics(app):
     csrf = _csrf(TestClient(app))
     admin = TestClient(app)
@@ -205,8 +178,7 @@ def test_htmx_partial_and_diagnostics(app):
     assert "Add your first timeslot" in admin.get(f"/admin?round_id={rid}").text
 
     admin.post("/admin/timeslot", headers={"X-CSRFToken": csrf},
-               data={"round_id": rid, "name": "14:00", "duration_minutes": "45",
-                     "room_ids": [str(room_id)]})
+               data={"round_id": rid, "name": "14:00", "duration_minutes": "45"})
 
     # an htmx POST returns the console *partial* (no full HTML doc), not a redirect
     r = admin.post("/admin/add-session", data={"round_id": rid, "title": "Lonely topic"},
@@ -239,7 +211,7 @@ def test_join_link_and_state_aware_default(app):
         rid = s.scalar(select(Round)).id
         room_id = s.scalar(select(Room)).id
     admin.post("/admin/timeslot", headers={"X-CSRFToken": csrf},
-               data={"round_id": rid, "name": "14:00", "room_ids": [str(room_id)]})
+               data={"round_id": rid, "name": "14:00"})
     part = TestClient(app)
     _post(part, "/enter", csrf, {"code": "joinme", "name": "Sam"})
     _post(part, "/propose", csrf, {"title": "AI safety"})
@@ -304,7 +276,7 @@ def test_room_timeslot_edit_delete_routes(app):
         rid = s.scalar(select(Round)).id
         rooms = [r.id for r in s.scalars(select(Room))]
     admin.post("/admin/timeslot", headers={"X-CSRFToken": csrf},
-               data={"round_id": rid, "name": "14:00", "room_ids": [str(rooms[0])]})
+               data={"round_id": rid, "name": "14:00"})
     with sf() as s:
         ts = s.scalar(select(__import__("app.models", fromlist=["Timeslot"]).Timeslot)).id
 
@@ -493,7 +465,7 @@ def test_cross_round_placement_rejected_same_event(app):
     _post(admin, "/admin/round", csrf, {"name": "R2"})
     r2 = app_round_id(sf)
     _post(admin, "/admin/timeslot", csrf, {"round_id": r2, "name": "x",
-                                           "duration_minutes": "45", "room_ids": [str(room)]})
+                                           "duration_minutes": "45"})
     with sf() as s:
         ts2 = s.scalar(select(Timeslot).where(Timeslot.round_id == r2)).id
     r = admin.post("/admin/force-place", headers={"X-CSRFToken": csrf},
@@ -512,7 +484,7 @@ def test_force_place_rejects_second_placement_of_same_session(app):
     with sf() as s:
         room_ids = [str(r.id) for r in s.scalars(select(Room))]
     _post(admin, "/admin/timeslot", csrf, {"round_id": rid, "name": "A",
-                                           "duration_minutes": "45", "room_ids": room_ids})
+                                           "duration_minutes": "45"})
     c1 = TestClient(app); _post(c1, "/enter", csrf, {"code": "p", "name": "Sam"})
     _post(c1, "/propose", csrf, {"title": "Topic"})
     with sf() as s:
@@ -526,7 +498,7 @@ def test_force_place_rejects_second_placement_of_same_session(app):
     assert place(room_ids[1]).status_code == 409
 
 
-def test_description_optional_and_admin_toggle(app):
+def test_description_is_stored(app):
     csrf = _csrf(TestClient(app)); admin = TestClient(app)
     _post(admin, "/events", csrf, {"name": "R", "participant_code": "p", "admin_code": "a",
                                    "admin_name": "Org", "rooms": "Lib, 10"})
@@ -534,15 +506,9 @@ def test_description_optional_and_admin_toggle(app):
     sf = app.state.session_factory
     rid = app_round_id(sf)
     c1 = TestClient(app); _post(c1, "/enter", csrf, {"code": "p", "name": "Sam"})
-    # descriptions on by default → stored
     _post(c1, "/propose", csrf, {"title": "With desc", "description": "about widgets"})
     with sf() as s:
         assert s.scalar(select(Proposal).where(Proposal.title == "With desc")).description == "about widgets"
-    # admin disables descriptions for the event
-    _post(admin, "/admin/event-descriptions", csrf, {"round_id": rid, "enabled": "0"})
-    _post(c1, "/propose", csrf, {"title": "No desc", "description": "should be dropped"})
-    with sf() as s:
-        assert s.scalar(select(Proposal).where(Proposal.title == "No desc")).description is None
 
 
 def test_no_interest_rater_shown_in_console(app):
@@ -564,35 +530,28 @@ def test_no_interest_rater_shown_in_console(app):
     assert "Pat" in html
 
 
-def test_published_view_frozen_until_republish(app):
+def test_published_view_shows_live_grid(app):
     csrf = _csrf(TestClient(app)); admin = TestClient(app)
     _post(admin, "/events", csrf, {"name": "R", "participant_code": "p", "admin_code": "a",
                                    "admin_name": "Org", "rooms": "Lib, 10"})
-    _post(admin, "/admin/round", csrf, {"name": "R1"})
+    _post(admin, "/admin/round", csrf, {"name": "R1", "min_interest": 1})
     sf = app.state.session_factory
     rid = app_round_id(sf)
-    with sf() as s:
-        room = s.scalar(select(Room)).id
-    _post(admin, "/admin/timeslot", csrf, {"round_id": rid, "name": "14:00",
-                                           "duration_minutes": "45", "room_ids": [str(room)]})
+    _post(admin, "/admin/timeslot", csrf, {"round_id": rid, "name": "14:00", "duration_minutes": "45"})
     c1 = TestClient(app); _post(c1, "/enter", csrf, {"code": "p", "name": "Sam"})
     _post(c1, "/propose", csrf, {"title": "Original"})
     with sf() as s:
         pid = s.scalar(select(Proposal).where(Proposal.title == "Original")).id
-    _post(c1, "/rate", csrf, {"proposal_id": pid, "stars": 5})
+    c2 = TestClient(app); _post(c2, "/enter", csrf, {"code": "p", "name": "Kim"})
+    _post(c2, "/rate", csrf, {"proposal_id": pid, "stars": 5})
     _post(admin, "/admin/solve", csrf, {"round_id": rid})
+    assert "Original" not in TestClient(app).get("/s/p").text   # not published yet
     _post(admin, "/admin/publish", csrf, {"round_id": rid})
     assert "Original" in TestClient(app).get("/s/p").text
-    # admin renames after publishing — attendees must NOT see it change yet
+    # an edit after publishing is visible at once, in the grid and the Markdown
     _post(admin, "/admin/proposal-edit", csrf, {"round_id": rid, "proposal_id": pid, "title": "Renamed"})
     page = TestClient(app).get("/s/p").text
-    assert "Original" in page and "Renamed" not in page
-    # the console warns about the drift
-    assert "changes since you published" in admin.get("/admin?round_id=%d" % rid).text
-    # re-publishing pushes the change live
-    _post(admin, "/admin/publish", csrf, {"round_id": rid})
-    assert "Renamed" in TestClient(app).get("/s/p").text
-
+    assert "Renamed" in page and "Original" not in page
 
 def test_bad_csrf_rejected(app):
     admin = TestClient(app)

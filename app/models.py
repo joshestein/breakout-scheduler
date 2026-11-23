@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import (ForeignKey, String, Integer, Boolean, Float, DateTime,
-                        UniqueConstraint, Text, false, true)
+from sqlalchemy import (ForeignKey, String, Integer, Boolean, DateTime,
+                        UniqueConstraint, Text, false)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -21,8 +21,6 @@ class Event(Base):
     name: Mapped[str] = mapped_column(String(200))
     participant_code: Mapped[str] = mapped_column(String(100), index=True)
     admin_code: Mapped[str] = mapped_column(String(100), index=True)
-    # whether participants may attach a description when proposing (admin-toggled)
-    descriptions_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
@@ -56,8 +54,6 @@ class Proposal(Base):
     created_by: Mapped[int] = mapped_column(ForeignKey("participants.id"))
     min_interest_override: Mapped[int | None] = mapped_column(Integer, nullable=True)
     max_attendees: Mapped[int | None] = mapped_column(Integer, nullable=True)  # host seat cap (small workshop)
-    merged_into: Mapped[int | None] = mapped_column(
-        ForeignKey("proposals.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
@@ -85,19 +81,9 @@ class Round(Base):
     event_id: Mapped[int] = mapped_column(ForeignKey("events.id"), index=True)
     name: Mapped[str] = mapped_column(String(200))
     status: Mapped[str] = mapped_column(String(20), default="collecting")  # draft|collecting|published|archived
-    lambda_fairness: Mapped[float] = mapped_column(Float, default=3.0)  # unused; kept to avoid a migration
     min_interest: Mapped[int] = mapped_column(Integer, default=2)  # min seated non-hosts
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-
-
-class RoundParticipant(Base):
-    __tablename__ = "round_participants"
-    __table_args__ = (UniqueConstraint("round_id", "participant_id"),)
-    id: Mapped[int] = mapped_column(primary_key=True)
-    round_id: Mapped[int] = mapped_column(ForeignKey("rounds.id"), index=True)
-    participant_id: Mapped[int] = mapped_column(ForeignKey("participants.id"), index=True)
-    present: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
 class Timeslot(Base):
@@ -108,14 +94,6 @@ class Timeslot(Base):
     position: Mapped[int] = mapped_column(Integer)
     duration_minutes: Mapped[int] = mapped_column(Integer, default=45)
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-
-
-class TimeslotRoom(Base):
-    __tablename__ = "timeslot_rooms"
-    __table_args__ = (UniqueConstraint("timeslot_id", "room_id"),)
-    id: Mapped[int] = mapped_column(primary_key=True)
-    timeslot_id: Mapped[int] = mapped_column(ForeignKey("timeslots.id"))
-    room_id: Mapped[int] = mapped_column(ForeignKey("rooms.id"))
 
 
 class Placement(Base):
@@ -138,11 +116,3 @@ class PushSubscription(Base):
     auth: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
-
-class RoundSnapshot(Base):
-    __tablename__ = "round_snapshots"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    round_id: Mapped[int] = mapped_column(ForeignKey("rounds.id"), index=True)
-    stats_json: Mapped[str] = mapped_column(Text)
-    grid_json: Mapped[str] = mapped_column(Text)
-    published_at: Mapped[datetime] = mapped_column(DateTime, default=_now)

@@ -210,8 +210,6 @@ body[data-page="published"] .phone>*,
    ADMIN CONSOLE — the control desk (calm: no entrance animations, it polls)
    ============================================================================ */
 .console{display:grid;grid-template-columns:320px 1fr;min-height:calc(100vh - 64px)}
-.console.decision{grid-template-columns:0 1fr}
-.console.decision .rail.left{display:none}
 .rail.left{border-right:1px solid var(--rule);background:var(--panel);
   max-height:calc(100vh - 64px);overflow:auto}
 .rail-sec{padding:.85rem 1rem;border-bottom:1px solid var(--faint)}
@@ -242,8 +240,6 @@ label.tiny{display:flex;flex-direction:column;gap:.2rem;font-family:var(--mono);
 .explain{font-family:var(--serif);font-size:.84rem;color:var(--soft);margin:.35rem 0;line-height:1.45}
 .explain b{color:var(--ink);font-style:normal}
 
-.rooms-pick{border:1px solid var(--faint);border-radius:var(--r);padding:.45rem;display:flex;flex-wrap:wrap;gap:.4rem}
-.rooms-pick legend{font-family:var(--mono);font-size:.62rem;text-transform:uppercase;letter-spacing:.1em;color:var(--soft);padding:0 .3rem}
 .ck{display:flex;align-items:center;gap:.3rem;font-size:.8rem;width:auto}
 .ck input{width:auto}
 
@@ -257,18 +253,10 @@ label.tiny{display:flex;flex-direction:column;gap:.2rem;font-family:var(--mono);
 .badge2{font-family:var(--mono);font-size:.58rem;text-transform:uppercase;letter-spacing:.06em;
   color:var(--forest);border:1px solid var(--forest);border-radius:999px;padding:.02rem .4rem;margin-left:.3rem;white-space:nowrap}
 .pi-agg{display:flex;align-items:center;gap:.5rem;margin:.25rem 0}
-.spark{display:inline-flex;align-items:flex-end;gap:2px;height:16px}
-.spark i{width:4px;background:var(--accent);opacity:.8;display:block;border-radius:1px}
 .pi-actions{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
 .pi-actions form{width:auto}
 .cfgform{display:flex;flex-direction:column;gap:.4rem;padding:.5rem 0 .2rem}
 .cfgform .ck{font-family:var(--mono);font-size:.7rem;text-transform:none;letter-spacing:0}
-.merge select{width:auto;max-width:140px;font-size:.76rem;padding:.2rem}
-.person{display:inline;width:auto;margin:.12rem}
-.present-btn{cursor:pointer;font-family:var(--mono);font-size:.7rem;border-radius:999px;
-  padding:.2rem .55rem;border:1px solid var(--faint);background:var(--card);color:var(--ink)}
-.present-btn.here{background:var(--forest-wash);color:var(--forest);border-color:var(--forest)}
-.present-btn.away{background:var(--accent-wash);color:var(--accent-dk);border-color:var(--accent);text-decoration:line-through}
 
 /* center / action bar */
 .center{padding:1rem clamp(.8rem,2vw,1.4rem);overflow:auto}
@@ -292,7 +280,6 @@ label.tiny{display:flex;flex-direction:column;gap:.2rem;font-family:var(--mono);
 .slotform{display:flex;flex-wrap:wrap;gap:.5rem;align-items:flex-end;margin-top:.8rem}
 .slotform input[name=name]{flex:1;min-width:130px;font-family:var(--serif)}
 .slotform.big input[name=name]{font-size:1.1rem;padding:.6rem .7rem}
-.slotform .rooms-pick{flex-basis:100%}
 .quick-slot{display:inline-block}
 .quick-slot>summary{cursor:pointer;list-style:none}
 .quick-slot>summary::-webkit-details-marker{display:none}
@@ -314,7 +301,6 @@ label.tiny{display:flex;flex-direction:column;gap:.2rem;font-family:var(--mono);
 .rowhead .cov{font-family:var(--mono);font-size:.66rem;text-transform:uppercase;letter-spacing:.05em;color:var(--forest)}
 .cov.low{color:var(--over)} .cov.muted{color:var(--soft)}
 .cell{min-width:150px;padding:0}
-.cell.na{background:repeating-linear-gradient(45deg,transparent,transparent 6px,var(--fainter) 6px,var(--fainter) 7px);text-align:center;color:var(--soft)}
 .cell.empty{background:var(--paper)}
 .cell.empty select{border:none;background:transparent;color:var(--soft);font-family:var(--mono);font-size:.74rem;border-radius:0}
 .cell.filled{background:var(--card)}
@@ -361,10 +347,6 @@ label.tiny{display:flex;flex-direction:column;gap:.2rem;font-family:var(--mono);
   .console{grid-template-columns:1fr}
   /* on phones: schedule grid + Generate/Publish first, controls below */
   .center{order:-1;padding-bottom:1.2rem;border-bottom:3px double var(--rule)}
-  /* focus/decision is a big-screen feature; never collapse on mobile */
-  .console.decision{grid-template-columns:1fr}
-  .console.decision .rail.left{display:block}
-  .focus-toggle{display:none}
   .rail.left{max-height:none;border-right:none;border-bottom:none}
   .work{grid-template-columns:1fr}
   .consequences{position:static;border-left:none;border-top:3px double var(--rule);padding-left:0;padding-top:.8rem}
@@ -373,8 +355,7 @@ label.tiny{display:flex;flex-direction:column;gap:.2rem;font-family:var(--mono);
 
 /* ---- accessibility: visible keyboard focus on every control ---- */
 a:focus-visible,button:focus-visible,summary:focus-visible,[role="button"]:focus-visible,
-.star:focus-visible,.lnk:focus-visible,.chip:focus-visible,.runner-toggle:focus-visible,
-.present-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+.star:focus-visible,.lnk:focus-visible,.chip:focus-visible,.runner-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
 .star:focus-visible{outline-offset:-1px}
 
 /* ---- sticky timetable header + first column (laptop scroll) ---- */
@@ -427,4 +408,3 @@ a:focus-visible,button:focus-visible,summary:focus-visible,[role="button"]:focus
 .sched-tools{display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;margin:.2rem 0 .6rem}
 .capnum{width:3rem;font-size:.74rem;padding:.15rem .25rem;font-family:var(--mono)}
 .ts-block .ts-name{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap}
-.person-row{display:inline-flex;align-items:center;gap:.15rem;margin:.12rem .25rem}

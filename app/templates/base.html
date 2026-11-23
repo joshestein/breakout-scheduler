@@ -23,7 +23,7 @@
     </a>
     <nav class="masthead-nav">
       {% if session %}
-        {% if session.is_admin %}<a href="/admin">console</a><a href="/admin/archive">archive</a>{% endif %}
+        {% if session.is_admin %}<a href="/admin">console</a>{% endif %}
         <a href="/app">rate</a><a href="/published">schedule</a>
         <a href="/logout" class="muted">exit</a>
       {% endif %}

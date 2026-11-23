@@ -28,7 +28,7 @@ def test_alembic_upgrade_head_on_fresh_db():
                 .get_columns("proposals")}
         # columns added across the migration chain are all present
         assert {"round_id", "min_interest_override", "max_attendees"} <= cols
-        assert not {"anonymous", "must_run", "allow_repeat", "needs_space"} & cols
+        assert not {"anonymous", "must_run", "allow_repeat", "needs_space", "merged_into"} & cols
 
 
 def test_migrated_schema_matches_create_all():
@@ -42,7 +42,8 @@ def test_migrated_schema_matches_create_all():
 
         mig = inspect(create_engine(f"sqlite:///{migrated}"))
         new = inspect(fresh)
-        for table in ("proposals", "participants", "timeslot_rooms"):
+        assert set(mig.get_table_names()) - {"alembic_version"} == set(new.get_table_names())
+        for table in new.get_table_names():
             assert ({c["name"] for c in mig.get_columns(table)}
                     == {c["name"] for c in new.get_columns(table)}), table
 

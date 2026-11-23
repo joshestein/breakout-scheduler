@@ -6,13 +6,12 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from app.models import (Event, Participant, Proposal, ProposalRunner, Rating, Room,
-                        Round, RoundParticipant, Timeslot, TimeslotRoom, Placement,
-                        RoundSnapshot)
+                        Round, Timeslot, Placement)
 from app.types import INTERESTED_STARS
 from app.deps import get_session, require_admin, require_csrf, load_participant
 from app.render import render
 from app.scoping import (owned_round, owned_proposal, owned_timeslot, owned_placement,
-                        owned_participant, owned_room, room_in_timeslot)
+                        owned_room)
 from app.services import proposals as P
 from app.services import rounds as RD
 from app.services import push as PUSH
@@ -69,11 +68,9 @@ def _eval_fingerprint(session: Session, rnd: Round) -> tuple:
     prop_ids = [p.id for p in props]
     def rows(stmt):
         return tuple(sorted(stmt)) if stmt else ()
-    tr = rows([(x.timeslot_id, x.room_id) for x in session.scalars(
-        select(TimeslotRoom).where(TimeslotRoom.timeslot_id.in_(ts_ids)))] if ts_ids else [])
     rooms_fp = rows([(r.id, r.capacity) for r in session.scalars(
         select(Room).where(Room.event_id == rnd.event_id))])
-    props_fp = rows([(p.id, p.status, p.merged_into or 0, p.min_interest_override or -1,
+    props_fp = rows([(p.id, p.status, p.min_interest_override or -1,
                       p.max_attendees or -1) for p in props])
     pls_fp = rows([(pl.timeslot_id, pl.room_id, pl.proposal_id)
                    for pl in session.scalars(
@@ -82,19 +79,15 @@ def _eval_fingerprint(session: Session, rnd: Round) -> tuple:
         select(Rating).where(Rating.proposal_id.in_(prop_ids)))] if prop_ids else [])
     runners_fp = rows([(pr.participant_id, pr.proposal_id) for pr in session.scalars(
         select(ProposalRunner).where(ProposalRunner.proposal_id.in_(prop_ids)))] if prop_ids else [])
-    present_fp = rows([(x.participant_id, x.present) for x in session.scalars(
-        select(RoundParticipant).where(RoundParticipant.round_id == rnd.id))])
     ts_fp = rows([(t.id, t.position, t.duration_minutes) for t in ts])
-    return (rnd.min_interest, ts_fp, tr, rooms_fp,
-            props_fp, pls_fp, ratings_fp, runners_fp, present_fp)
+    return (rnd.min_interest, ts_fp, rooms_fp, props_fp, pls_fp, ratings_fp, runners_fp)
 
 
 def _context(request: Request, session: Session, event: Event, rnd: Round | None) -> dict:
     rooms = list(session.scalars(select(Room).where(Room.event_id == event.id).order_by(Room.id)))
     # pool is scoped to THIS round (each round is self-contained)
     proposals = [] if rnd is None else list(session.scalars(select(Proposal).where(
-        Proposal.round_id == rnd.id, Proposal.status == "active",
-        Proposal.merged_into.is_(None)).order_by(Proposal.id)))
+        Proposal.round_id == rnd.id, Proposal.status == "active").order_by(Proposal.id)))
     titles = {p.id: p.title for p in session.scalars(
         select(Proposal).where(Proposal.event_id == event.id))}
     names = {u.id: u.display_name for u in session.scalars(
@@ -109,7 +102,7 @@ def _context(request: Request, session: Session, event: Event, rnd: Round | None
 
     ctx = {"event": event, "rnd": rnd, "rooms": rooms, "pool": pool,
            "join_url": join_url, "schedule_url": schedule_url, "schedule_md": schedule_md,
-           "titles": titles, "names": names, "participants": [],
+           "titles": titles, "names": names,
            "timeslots": [], "grid": {}, "consequences": None, "placed_ids": set(),
            "unplaced": [], "all_rounds": list(session.scalars(
                select(Round).where(Round.event_id == event.id).order_by(Round.id.desc())))}
@@ -118,21 +111,12 @@ def _context(request: Request, session: Session, event: Event, rnd: Round | None
 
     timeslots = list(session.scalars(select(Timeslot).where(
         Timeslot.round_id == rnd.id).order_by(Timeslot.position)))
-    ts_rooms = {ts.id: {tr.room_id for tr in session.scalars(
-        select(TimeslotRoom).where(TimeslotRoom.timeslot_id == ts.id))} for ts in timeslots}
     placements = {}
     placed_ids = set()
     for ts in timeslots:
         for pl in session.scalars(select(Placement).where(Placement.timeslot_id == ts.id)):
             placements[(ts.id, pl.room_id)] = pl
             placed_ids.add(pl.proposal_id)
-
-    # presence
-    rp = {x.participant_id: x.present for x in session.scalars(
-        select(RoundParticipant).where(RoundParticipant.round_id == rnd.id))}
-    participants = [{"u": u, "present": rp.get(u.id, True)}
-                    for u in session.scalars(select(Participant).where(
-                        Participant.event_id == event.id))]
 
     # consequences for the EXACT current grid — cached by a content fingerprint so
     # the 5s poll doesn't re-run CP-SAT when nothing relevant changed.
@@ -160,7 +144,7 @@ def _context(request: Request, session: Session, event: Event, rnd: Round | None
         runner_pids = {pr.participant_id for pr in session.scalars(
             select(ProposalRunner).where(ProposalRunner.proposal_id.in_(prop_ids_all)))}
     no_interest_ids = [u for u in rated_pids
-                       if u not in interested_pids and u not in runner_pids and rp.get(u, True)]
+                       if u not in interested_pids and u not in runner_pids]
     no_interest = sorted(names.get(u, u) for u in no_interest_ids)
 
     # coverage denominator includes the no-interest folks (they ARE not covered)
@@ -188,10 +172,8 @@ def _context(request: Request, session: Session, event: Event, rnd: Round | None
         return max(1, p.min_interest_override if p.min_interest_override is not None
                    else rnd.min_interest)
     n_eligible = sum(1 for x in pool if x["interested"] >= floor(x["p"]))
-    slot_no_rooms = [ts.name for ts in timeslots if not ts_rooms[ts.id]]
     diag = {
         "has_timeslots": bool(timeslots),
-        "slots_no_rooms": slot_no_rooms,
         "n_proposals": len(pool),
         "n_eligible": n_eligible,
         "n_rated": rated_count,
@@ -199,13 +181,12 @@ def _context(request: Request, session: Session, event: Event, rnd: Round | None
     }
 
     ctx.update({
-        "timeslots": timeslots, "ts_rooms": ts_rooms, "placements": placements,
-        "placed_ids": placed_ids, "participants": participants,
+        "timeslots": timeslots, "placements": placements,
+        "placed_ids": placed_ids,
         "coverage": cov, "left_out": left, "forced": forced, "cellstats": cellstats,
         "total_interest": result.total_interest, "unplaced": unplaced,
         "n_present": result.n_present, "no_interest": no_interest,
         "top_choice_pct": result.top_choice_pct,
-        "published_drift": RD.published_drift(session, rnd.id) if rnd.status == "published" else False,
         "pin_conflicts": result.pin_conflicts, "diag": diag,
     })
     return ctx
@@ -216,7 +197,6 @@ def _respond(request: Request, session: Session, event: Event, round_id: int):
     rnd = owned_round(session, round_id, event.id)
     if request.headers.get("HX-Request"):
         ctx = _context(request, session, event, rnd)
-        ctx["mode"] = "full"
         return render(request, "_console.html", **ctx)
     return RedirectResponse(f"/admin?round_id={round_id}", status_code=303)
 
@@ -228,18 +208,16 @@ def _respond_or_console(request: Request, session: Session, event: Event, round_
     rnd = _current_round(session, event.id, None)
     if request.headers.get("HX-Request"):
         ctx = _context(request, session, event, rnd)
-        ctx["mode"] = "full"
         return render(request, "_console.html", **ctx)
     return RedirectResponse("/admin", status_code=303)
 
 
 @router.get("")
-def console(request: Request, round_id: int | None = None, mode: str = "full",
+def console(request: Request, round_id: int | None = None,
             token=Depends(require_admin), session: Session = Depends(get_session)):
     event = _event_of(session, token)
     rnd = _current_round(session, event.id, round_id)
     ctx = _context(request, session, event, rnd)
-    ctx["mode"] = mode
     return render(request, "admin.html", **ctx)
 
 
@@ -344,7 +322,7 @@ def add_round(request: Request, name: str = Form(...),
 
 @router.post("/timeslot")
 def add_timeslot(request: Request, round_id: int = Form(...), name: str = Form(...),
-                 duration_minutes: int = Form(45, ge=1, le=1440), room_ids: list[int] = Form([]),
+                 duration_minutes: int = Form(45, ge=1, le=1440),
                  token=Depends(require_admin), session: Session = Depends(get_session),
                  _: None = Depends(require_csrf)):
     event = _event_of(session, token)
@@ -352,7 +330,7 @@ def add_timeslot(request: Request, round_id: int = Form(...), name: str = Form(.
     pos = session.scalar(select(func.count(Timeslot.id)).where(
         Timeslot.round_id == round_id)) or 0
     RD.add_timeslot(session, round_id=round_id, name=name.strip(), position=pos,
-                    duration_minutes=duration_minutes, room_ids=room_ids)
+                    duration_minutes=duration_minutes)
     return _respond(request, session, event, round_id)
 
 
@@ -368,35 +346,6 @@ def add_session(request: Request, round_id: int = Form(...), title: str = Form(.
         # auto-added as a runner (it's a topic on behalf of the room).
         P.propose(session, event_id=event.id, title=title, created_by=me.id,
                   runner=False, round_id=round_id)
-    return _respond(request, session, event, round_id)
-
-
-@router.post("/timeslot-rooms")
-def timeslot_rooms(request: Request, round_id: int = Form(...),
-                   timeslot_id: int = Form(...), room_ids: list[int] = Form([]),
-                   token=Depends(require_admin),
-                   session: Session = Depends(get_session),
-                   _: None = Depends(require_csrf)):
-    event = _event_of(session, token)
-    owned_round(session, round_id, event.id)
-    owned_timeslot(session, timeslot_id, event.id)
-    for rid in room_ids:
-        owned_room(session, rid, event.id)
-    RD.set_timeslot_rooms(session, timeslot_id=timeslot_id, room_ids=room_ids)
-    return _respond(request, session, event, round_id)
-
-
-@router.post("/session-config")
-def session_config(request: Request, round_id: int = Form(...), proposal_id: int = Form(...),
-                   min_interest_override: str = Form(""), max_attendees: str = Form(""),
-                   token=Depends(require_admin), session: Session = Depends(get_session),
-                   _: None = Depends(require_csrf)):
-    event = _event_of(session, token)
-    owned_round(session, round_id, event.id)
-    owned_proposal(session, proposal_id, event.id)
-    mio = int(min_interest_override) if min_interest_override.strip().isdigit() else None
-    mx = int(max_attendees) if max_attendees.strip().isdigit() else None
-    P.set_config(session, proposal_id, min_interest_override=mio, max_attendees=mx)
     return _respond(request, session, event, round_id)
 
 
@@ -461,7 +410,6 @@ def move(request: Request, round_id: int = Form(...), placement_id: int = Form(.
     owned_placement(session, placement_id, event.id)
     owned_timeslot(session, timeslot_id, event.id)
     owned_room(session, room_id, event.id)
-    room_in_timeslot(session, timeslot_id, room_id)
     moved = session.get(Placement, placement_id)
     _same_round(session, timeslot_id, moved.proposal_id)
     if session.scalar(select(Placement).where(Placement.timeslot_id == timeslot_id,
@@ -480,7 +428,6 @@ def force_place(request: Request, round_id: int = Form(...), timeslot_id: int = 
     owned_timeslot(session, timeslot_id, event.id)
     owned_proposal(session, proposal_id, event.id)
     owned_room(session, room_id, event.id)
-    room_in_timeslot(session, timeslot_id, room_id)
     _same_round(session, timeslot_id, proposal_id)
     if session.scalar(select(Placement).where(Placement.timeslot_id == timeslot_id,
                                               Placement.room_id == room_id)):
@@ -501,31 +448,7 @@ def _same_round(session: Session, timeslot_id: int, proposal_id: int) -> None:
         raise HTTPException(status_code=400, detail="proposal and timeslot are in different rounds")
 
 
-@router.post("/event-descriptions")
-def event_descriptions(request: Request, round_id: int = Form(...), enabled: int = Form(0),
-                       token=Depends(require_admin), session: Session = Depends(get_session),
-                       _: None = Depends(require_csrf)):
-    """Toggle whether participants may attach a description when proposing."""
-    event = _event_of(session, token)
-    owned_round(session, round_id, event.id)
-    event.descriptions_enabled = bool(enabled)
-    session.flush()
-    return _respond(request, session, event, round_id)
-
-
 # ---- proposal & participant management -------------------------------------
-
-@router.post("/merge")
-def merge(request: Request, round_id: int = Form(...), source_id: int = Form(...),
-          target_id: int = Form(...), token=Depends(require_admin),
-          session: Session = Depends(get_session), _: None = Depends(require_csrf)):
-    event = _event_of(session, token)
-    owned_round(session, round_id, event.id)
-    owned_proposal(session, source_id, event.id)
-    owned_proposal(session, target_id, event.id)
-    P.merge(session, source_id=source_id, target_id=target_id)
-    return _respond(request, session, event, round_id)
-
 
 @router.post("/retire")
 def retire(request: Request, round_id: int = Form(...), proposal_id: int = Form(...),
@@ -534,18 +457,6 @@ def retire(request: Request, round_id: int = Form(...), proposal_id: int = Form(
     event = _event_of(session, token)
     owned_proposal(session, proposal_id, event.id)
     P.retire(session, proposal_id)
-    return _respond(request, session, event, round_id)
-
-
-@router.post("/present")
-def present(request: Request, round_id: int = Form(...), participant_id: int = Form(...),
-            present: int = Form(...), token=Depends(require_admin),
-            session: Session = Depends(get_session), _: None = Depends(require_csrf)):
-    event = _event_of(session, token)
-    owned_round(session, round_id, event.id)
-    owned_participant(session, participant_id, event.id)
-    RD.set_present(session, round_id=round_id, participant_id=participant_id,
-                   present=bool(present))
     return _respond(request, session, event, round_id)
 
 
@@ -585,24 +496,3 @@ def timeslot_start(request: Request, background: BackgroundTasks,
     return _respond(request, session, event, round_id)
 
 
-@router.post("/archive-round")
-def archive_round(request: Request, round_id: int = Form(...), token=Depends(require_admin),
-                  session: Session = Depends(get_session), _: None = Depends(require_csrf)):
-    event = _event_of(session, token)
-    owned_round(session, round_id, event.id)
-    RD.archive(session, round_id)
-    return RedirectResponse("/admin", status_code=303)
-
-
-@router.get("/archive")
-def archive_list(request: Request, token=Depends(require_admin),
-                 session: Session = Depends(get_session)):
-    event = _event_of(session, token)
-    rounds = session.scalars(select(Round).where(Round.event_id == event.id)).all()
-    rids = [r.id for r in rounds]
-    snaps = []
-    if rids:
-        snaps = list(session.scalars(select(RoundSnapshot).where(
-            RoundSnapshot.round_id.in_(rids)).order_by(RoundSnapshot.id.desc())))
-    rnd_by_id = {r.id: r for r in rounds}
-    return render(request, "archive.html", event=event, snaps=snaps, rnd_by_id=rnd_by_id)

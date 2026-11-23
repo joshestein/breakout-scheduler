@@ -1,7 +1,7 @@
 import pytest
 
 from app.models import (Event, Room, Participant, Proposal, ProposalRunner, Rating,
-                        Round, Timeslot, TimeslotRoom, Placement)
+                        Round, Timeslot, Placement)
 from app.services import proposals as P
 from app.services import ratings as R
 from app.services import rounds as RD
@@ -28,24 +28,6 @@ def test_propose_adds_proposer_as_runner(session):
     assert [r.participant_id for r in runners] == [u.id]
 
 
-def test_merge_is_non_destructive_and_reversible(session):
-    e = _event(session); u = _p(session, e, "U1")
-    a = P.propose(session, event_id=e.id, title="A", created_by=u.id)
-    b = P.propose(session, event_id=e.id, title="B", created_by=u.id)
-    R.set_rating(session, participant_id=u.id, proposal_id=b.id, stars=4)
-    n_ratings = session.query(Rating).count()
-    n_runners = session.query(ProposalRunner).count()
-    P.merge(session, source_id=b.id, target_id=a.id)
-    assert session.get(Proposal, b.id).merged_into == a.id
-    assert session.get(Proposal, b.id).status == "retired"
-    # nothing mutated
-    assert session.query(Rating).count() == n_ratings
-    assert session.query(ProposalRunner).count() == n_runners
-    P.unmerge(session, b.id)
-    assert session.get(Proposal, b.id).merged_into is None
-    assert session.get(Proposal, b.id).status == "active"
-
-
 def test_load_participant_rejects_stale_cookie(session):
     from app.deps import load_participant, participant_cb
     from app.auth import SessionToken
@@ -66,7 +48,6 @@ def test_delete_room_cascades(session):
     s.add(Placement(timeslot_id=ts.id, room_id=r1.id, proposal_id=a.id)); s.flush()
     RD.delete_room(s, r1.id)
     assert s.get(Room, r1.id) is None
-    assert s.query(TimeslotRoom).filter_by(room_id=r1.id).count() == 0
     assert s.query(Placement).filter_by(room_id=r1.id).count() == 0
 
 
@@ -79,18 +60,6 @@ def test_delete_timeslot_cascades(session):
     RD.delete_timeslot(s, ts.id)
     assert s.get(Timeslot, ts.id) is None
     assert s.query(Placement).filter_by(timeslot_id=ts.id).count() == 0
-    assert s.query(TimeslotRoom).filter_by(timeslot_id=ts.id).count() == 0
-
-
-def test_cross_round_merge_rejected(session):
-    s = session; e = _event(s)
-    r1 = RD.create_round(s, event_id=e.id, name="R1")
-    u = _p(s, e, "U")
-    a = P.propose(s, event_id=e.id, title="A", created_by=u.id)   # -> r1
-    r2 = RD.create_round(s, event_id=e.id, name="R2")
-    b = P.propose(s, event_id=e.id, title="B", created_by=u.id)   # -> r2
-    with pytest.raises(ValueError):
-        P.merge(s, source_id=a.id, target_id=b.id)                # different rounds
 
 
 def test_current_round_id_excludes_published(session):
@@ -100,15 +69,6 @@ def test_current_round_id_excludes_published(session):
     assert current_round_id(s, e.id) == r1.id
     r1.status = "published"; s.flush()
     assert current_round_id(s, e.id) is None   # never targets a published round
-
-
-def test_merge_cycle_rejected(session):
-    e = _event(session); u = _p(session, e, "U1")
-    a = P.propose(session, event_id=e.id, title="A", created_by=u.id)
-    b = P.propose(session, event_id=e.id, title="B", created_by=u.id)
-    P.merge(session, source_id=b.id, target_id=a.id)
-    with pytest.raises(ValueError):
-        P.merge(session, source_id=a.id, target_id=b.id)
 
 
 # ---- ratings ---------------------------------------------------------------
@@ -137,12 +97,11 @@ def _round_with_two_rooms(session):
     r2 = Room(event_id=e.id, name="Den", capacity=10)
     session.add_all([r1, r2]); session.flush()
     rnd = RD.create_round(session, event_id=e.id, name="Round 1", min_interest=1)
-    ts = RD.add_timeslot(session, round_id=rnd.id, name="Slot A", position=0,
-                         room_ids=[r1.id, r2.id])
+    ts = RD.add_timeslot(session, round_id=rnd.id, name="Slot A", position=0)
     return e, [r1, r2], rnd, ts
 
 
-def test_solve_apply_and_publish_validation(session):
+def test_solve_apply_and_publish(session):
     e, rooms, rnd, ts = _round_with_two_rooms(session)
     u1 = _p(session, e, "U1"); u2 = _p(session, e, "U2")
     a = P.propose(session, event_id=e.id, title="A", created_by=u1.id)
@@ -155,22 +114,8 @@ def test_solve_apply_and_publish_validation(session):
     RD.apply_result(session, rnd.id, result)
     placed = session.query(Placement).filter(Placement.timeslot_id == ts.id).count()
     assert placed >= 1
-    snap = RD.publish(session, rnd.id)
-    assert snap.id is not None
+    RD.publish(session, rnd.id)
     assert session.get(Round, rnd.id).status == "published"
-
-
-def test_publish_rejects_room_not_in_timeslot(session):
-    e, rooms, rnd, ts = _round_with_two_rooms(session)
-    other = Room(event_id=e.id, name="Hallway", capacity=5)
-    session.add(other); session.flush()
-    u1 = _p(session, e, "U1")
-    a = P.propose(session, event_id=e.id, title="A", created_by=u1.id)
-    # force a placement into a room not available this slot
-    session.add(Placement(timeslot_id=ts.id, room_id=other.id, proposal_id=a.id))
-    session.flush()
-    with pytest.raises(ValueError):
-        RD.publish(session, rnd.id)
 
 
 def test_unpublish_blocked_after_clock_starts(session):
@@ -191,20 +136,6 @@ def test_propose_without_runner_adds_no_runner(session):
     assert session.query(ProposalRunner).filter_by(proposal_id=prop.id).count() == 0
 
 
-def test_set_timeslot_rooms_replaces_and_prunes_placements(session):
-    from app.models import Placement, TimeslotRoom
-    e, rooms, rnd, ts = _round_with_two_rooms(session)   # ts exposes rooms[0], rooms[1]
-    r1, r2 = rooms
-    u = _p(session, e, "U1")
-    a = P.propose(session, event_id=e.id, title="A", created_by=u.id)
-    # place A in r2, then remove r2 from the timeslot -> placement must be dropped
-    session.add(Placement(timeslot_id=ts.id, room_id=r2.id, proposal_id=a.id)); session.flush()
-    RD.set_timeslot_rooms(session, timeslot_id=ts.id, room_ids=[r1.id])
-    room_ids = {tr.room_id for tr in session.query(TimeslotRoom).filter_by(timeslot_id=ts.id)}
-    assert room_ids == {r1.id}
-    assert session.query(Placement).filter_by(timeslot_id=ts.id).count() == 0
-
-
 def test_rounds_are_isolated_proposals_dont_carry(session):
     from app.solver_input import build_problem
     s = session; e = _event(s)
@@ -219,23 +150,6 @@ def test_rounds_are_isolated_proposals_dont_carry(session):
     # A is a candidate in its own round, but does NOT leak into the new round
     assert any(c.id == a.id for c in build_problem(s, r1.id).candidates)
     assert all(c.id != a.id for c in build_problem(s, r2.id).candidates)
-
-
-def test_set_present_drops_runner_from_solve(session):
-    from app.solver_input import build_problem
-    e, rooms, rnd, ts = _round_with_two_rooms(session)
-    runner = _p(session, e, "Runner"); guest = _p(session, e, "Guest")
-    a = P.propose(session, event_id=e.id, title="A", created_by=runner.id)
-    R.set_rating(session, participant_id=guest.id, proposal_id=a.id, stars=5)
-    # before marking absent: runner is present and is a runner of the candidate
-    before = build_problem(session, rnd.id)
-    assert runner.id in before.present
-    assert any(runner.id in c.runners for c in before.candidates)
-    # mark absent -> dropped from present, and a session with no host left can't run
-    RD.set_present(session, round_id=rnd.id, participant_id=runner.id, present=False)
-    after = build_problem(session, rnd.id)
-    assert runner.id not in after.present
-    assert all(c.id != a.id for c in after.candidates)
 
 
 # ---- backup ----------------------------------------------------------------

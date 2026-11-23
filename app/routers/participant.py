@@ -4,8 +4,8 @@ from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
-from app.models import (Event, Participant, Proposal, ProposalRunner, Rating, Round,
-                        Timeslot, Room)
+from app.models import (Event, Participant, Placement, Proposal, ProposalRunner, Rating,
+                        Round, Timeslot, Room)
 from app.types import INTERESTED_STARS
 from app.deps import get_session, require_participant, require_csrf, load_participant
 from app.render import render
@@ -28,8 +28,7 @@ def _active_proposals(session: Session, round_id: int | None) -> list[Proposal]:
     if round_id is None:
         return []
     return list(session.scalars(select(Proposal).where(
-        Proposal.round_id == round_id, Proposal.status == "active",
-        Proposal.merged_into.is_(None)).order_by(Proposal.id)))
+        Proposal.round_id == round_id, Proposal.status == "active").order_by(Proposal.id)))
 
 
 def _latest_round(session: Session, event_id: int, status: str | None = None) -> Round | None:
@@ -86,8 +85,6 @@ def propose(request: Request, title: str = Form(...), description: str = Form(""
             _: None = Depends(require_csrf)):
     me, event = _me_event(session, token)
     rnd = _input_round(session, event.id)
-    if not event.descriptions_enabled:
-        description = ""   # admin disabled descriptions for this event
     if title.strip() and rnd:
         P.propose(session, event_id=event.id, title=title, created_by=me.id,
                   description=description or None, round_id=rnd.id,
@@ -174,34 +171,29 @@ def propose_delete(request: Request, proposal_id: int = Form(...),
 
 def build_published_grid(session: Session, event: Event, rnd: Round,
                          my_stars: dict[int, int]) -> list[dict]:
-    """Render the PUBLISHED lineup from the frozen snapshot (so post-publish edits
-    don't silently change what attendees see), overlaid with LIVE timing
-    (started clocks/durations) and per-viewer highlight."""
-    import json
-    snap = RD.published_snapshot(session, rnd.id)
-    if snap is None:
-        return []
-    entries = json.loads(snap.grid_json)
+    """The published lineup (the live grid), with clocks and a per-viewer highlight."""
     props = {p.id: p for p in session.scalars(
         select(Proposal).where(Proposal.event_id == event.id))}
     rooms = {r.id: r for r in session.scalars(
         select(Room).where(Room.event_id == event.id))}
     ts_by_id = {t.id: t for t in session.scalars(
         select(Timeslot).where(Timeslot.round_id == rnd.id))}
-    by_ts: dict[int, list] = {}
-    for e in entries:
-        by_ts.setdefault(e["timeslot_id"], []).append(e)
+    by_ts: dict[int, list[Placement]] = {}
+    if ts_by_id:
+        for pl in session.scalars(select(Placement).where(
+                Placement.timeslot_id.in_(list(ts_by_id)))):
+            by_ts.setdefault(pl.timeslot_id, []).append(pl)
     grid = []
     for ts in sorted(ts_by_id.values(), key=lambda t: t.position):
         cells = []
-        for e in by_ts.get(ts.id, []):
-            pid, rid = e["proposal_id"], e["room_id"]
+        for pl in sorted(by_ts.get(ts.id, []), key=lambda pl: pl.room_id):
+            pid, rid = pl.proposal_id, pl.room_id
             interested = session.scalar(select(func.count(Rating.id)).where(
                 Rating.proposal_id == pid, Rating.stars >= INTERESTED_STARS)) or 0
             room = rooms.get(rid)
-            # frozen room name from the snapshot; fall back to the live room
-            label = e.get("room") or (room.name if room else "—")
-            cells.append({"key": pid, "title": e.get("title"), "room_id": rid,
+            label = room.name if room else "—"
+            cells.append({"key": pid, "title": props[pid].title if pid in props else "?",
+                          "room_id": rid,
                           "room_label": label, "my_stars": my_stars.get(pid, 0),
                           "interested": interested,
                           "cap": props[pid].max_attendees if pid in props else None})

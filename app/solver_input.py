@@ -5,10 +5,15 @@ from collections import defaultdict
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import (Proposal, Rating, ProposalRunner, Round, RoundParticipant,
-                        Timeslot, TimeslotRoom, Room)
+from app.models import Proposal, Rating, ProposalRunner, Round, Timeslot, Room
 from app.types import Problem, Candidate, Slot, INTERESTED_STARS
-from app.merge_util import merge_root
+
+
+def min_seated(p: Proposal, rnd: Round) -> int:
+    """People besides the hosts who must be seated for `p` to run: the proposer's own
+    number if set, else the round default. Never below 1."""
+    n = p.min_interest_override if p.min_interest_override is not None else rnd.min_interest
+    return max(1, n)
 
 
 def build_problem(session: Session, round_id: int,
@@ -22,73 +27,44 @@ def build_problem(session: Session, round_id: int,
     # proposals are scoped to this round (each round is self-contained)
     props = session.scalars(
         select(Proposal).where(Proposal.round_id == round_id)).all()
-    parent = {p.id: p.merged_into for p in props}
-    prop_ids = list(parent)
-    active_roots = [p for p in props if p.status == "active" and p.merged_into is None]
-    candidate_ids = {p.id for p in active_roots}
+    prop_ids = [p.id for p in props]
+    active = [p for p in props if p.status == "active"]
+    active_ids = {p.id for p in active}
 
-    # fold ratings to their merge-root (max stars wins); non-destructive view.
-    # Scope the query to THIS round's proposals — not every rating in the DB.
-    folded: dict[tuple[int, int], int] = {}
-    if prop_ids:
-        for r in session.scalars(select(Rating).where(Rating.proposal_id.in_(prop_ids))):
-            root = merge_root(r.proposal_id, parent)
-            key = (r.participant_id, root)
-            folded[key] = max(folded.get(key, 0), r.stars)
-
-    # fold runners to root (also scoped to this round's proposals)
+    stars: dict[tuple[int, int], int] = {}
     runners: dict[int, set[int]] = defaultdict(set)
     if prop_ids:
+        for r in session.scalars(select(Rating).where(Rating.proposal_id.in_(prop_ids))):
+            stars[(r.participant_id, r.proposal_id)] = r.stars
         for pr in session.scalars(select(ProposalRunner).where(
                 ProposalRunner.proposal_id.in_(prop_ids))):
-            runners[merge_root(pr.proposal_id, parent)].add(pr.participant_id)
+            runners[pr.proposal_id].add(pr.participant_id)
 
-    # presence: engaged (rated >=3 a candidate OR runner of one) AND present-flag
-    rp = {x.participant_id: x.present for x in session.scalars(
-        select(RoundParticipant).where(RoundParticipant.round_id == round_id)).all()}
-    engaged: set[int] = {u for (u, cid), s in folded.items()
-                         if cid in candidate_ids and s >= INTERESTED_STARS}
-    for cid in candidate_ids:
-        engaged |= runners[cid]
-    present = frozenset(u for u in engaged if rp.get(u, True))
-
-    # drop absent runners from candidate runner-sets (their presence isn't required)
-    def effective_runners(cid: int) -> frozenset[int]:
-        return frozenset(u for u in runners[cid] if rp.get(u, True))
+    # present = engaged: rated an active session >=3, or hosts one
+    present: set[int] = {u for (u, cid), s in stars.items()
+                         if cid in active_ids and s >= INTERESTED_STARS}
+    for cid in active_ids:
+        present |= runners[cid]
 
     # eligibility pre-filter: enough interested (>=3) people OTHER than the hosts to
     # meet the session's floor. The solver then enforces the floor on seats.
     def interested_count(cid: int) -> int:
-        rated = {u for (u, k), s in folded.items() if k == cid and s >= INTERESTED_STARS}
+        rated = {u for (u, k), s in stars.items() if k == cid and s >= INTERESTED_STARS}
         return len(rated - runners[cid])
 
-    # a session whose hosts are all marked away can't run (organizer-added sessions
-    # with no host at all are fine)
-    def hosts_away(cid: int) -> bool:
-        return bool(runners[cid]) and not effective_runners(cid)
-
-    slots: list[Slot] = []
-    for ts in session.scalars(
-            select(Timeslot).where(Timeslot.round_id == round_id)
-            .order_by(Timeslot.position)).all():
-        rooms = {tr.room_id: session.get(Room, tr.room_id).capacity
-                 for tr in session.scalars(
-                     select(TimeslotRoom).where(TimeslotRoom.timeslot_id == ts.id)).all()}
-        slots.append(Slot(id=ts.id, position=ts.position, rooms=rooms))
-
-    def min_seated(p: Proposal) -> int:
-        n = (p.min_interest_override if p.min_interest_override is not None
-             else rnd.min_interest)
-        return max(1, n)
+    # every room of the event is available in every timeslot
+    rooms = {r.id: r.capacity for r in session.scalars(
+        select(Room).where(Room.event_id == rnd.event_id))}
+    slots = [Slot(id=ts.id, position=ts.position, rooms=dict(rooms))
+             for ts in session.scalars(select(Timeslot).where(
+                 Timeslot.round_id == round_id).order_by(Timeslot.position))]
 
     candidates = [
-        Candidate(id=p.id, runners=effective_runners(p.id), max_attendees=p.max_attendees,
-                  min_seated=min_seated(p))
-        for p in active_roots
-        if p.id in force_include
-        or (interested_count(p.id) >= min_seated(p) and not hosts_away(p.id))]
+        Candidate(id=p.id, runners=frozenset(runners[p.id]), max_attendees=p.max_attendees,
+                  min_seated=min_seated(p, rnd))
+        for p in active
+        if p.id in force_include or interested_count(p.id) >= min_seated(p, rnd)]
     cand_ids = {c.id for c in candidates}
 
-    stars = {(u, cid): s for (u, cid), s in folded.items() if cid in cand_ids}
-    return Problem(slots=slots, candidates=candidates, present=present, stars=stars,
-                   pins=pins)
+    return Problem(slots=slots, candidates=candidates, present=frozenset(present),
+                   stars={k: s for k, s in stars.items() if k[1] in cand_ids}, pins=pins)
