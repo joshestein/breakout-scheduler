@@ -9,8 +9,11 @@ from datetime import datetime, timezone
 
 log = logging.getLogger("breakouts")
 
+from alembic import command
+from alembic.config import Config as AlembicConfig
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import inspect
 from fastapi.templating import Jinja2Templates
 
 from app.config import Settings, load_settings
@@ -109,6 +112,11 @@ def _backup_loop(app: FastAPI):
     return loop
 
 
+def _alembic_cfg(db_path: str) -> AlembicConfig:
+    os.environ["DB_PATH"] = db_path   # alembic/env.py reads the DB location from here
+    return AlembicConfig(os.path.join(os.path.dirname(os.path.dirname(__file__)), "alembic.ini"))
+
+
 _DEFAULT_SECRET = "dev-insecure-key-change-me"
 # Known placeholder keys that must never reach production. A publicly-known signing
 # key lets anyone forge an admin cookie. (Length isn't checked here so an existing
@@ -138,17 +146,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     if settings.db_path not in (":memory:",) and os.path.dirname(settings.db_path):
         os.makedirs(os.path.dirname(settings.db_path), exist_ok=True)
     engine = make_engine(settings.db_path)
-    # Gated migrations: run Alembic only when explicitly asked (after a backup);
-    # otherwise create_all for fresh DBs / dev. Schema-changing redeploys set
-    # RUN_MIGRATIONS=1 and are NOT the "~1s restart" path.
+    # Gated migrations: run Alembic only when explicitly asked (after a backup).
+    # Otherwise create_all; a brand-new file DB is also stamped at head so later
+    # RUN_MIGRATIONS=1 upgrades start from the right version.
     if os.environ.get("RUN_MIGRATIONS") == "1":
-        from alembic import command
-        from alembic.config import Config as AlembicConfig
-        cfg = AlembicConfig(os.path.join(os.path.dirname(os.path.dirname(__file__)), "alembic.ini"))
-        os.environ["DB_PATH"] = settings.db_path
-        command.upgrade(cfg, "head")
+        command.upgrade(_alembic_cfg(settings.db_path), "head")
     else:
+        fresh = not inspect(engine).get_table_names()
         Base.metadata.create_all(engine)
+        if fresh and settings.db_path != ":memory:":
+            command.stamp(_alembic_cfg(settings.db_path), "head")
 
     app.state.settings = settings
     app.state.engine = engine

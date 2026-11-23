@@ -50,6 +50,19 @@ docker compose up --build
 # 3. Share the participant code; share the admin code only with organizers.
 ```
 
+### Deploy on a VPS (Caddy + HTTPS)
+
+```bash
+# On a VPS with Docker, ports 80 + 443 open:
+cp .env.example .env   # fill in SECRET_KEY, BOOTSTRAP_ADMIN_CODE, SITE_ADDRESS, BASE_URL
+docker compose --profile caddy up -d --build
+```
+
+Point an `A` record for `SITE_ADDRESS` at the VPS. Before DNS is ready, use
+`breakouts.<ip-with-dashes>.sslip.io` (e.g. `breakouts.203-0-113-7.sslip.io`) to get
+real HTTPS, which service workers and push alerts need. Back up the `breakout-data`
+volume: it holds the DB and the push keys (`vapid.json`).
+
 ### Run locally without Docker
 
 ```bash

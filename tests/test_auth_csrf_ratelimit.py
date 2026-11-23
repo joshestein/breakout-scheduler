@@ -1,6 +1,17 @@
+from types import SimpleNamespace
+
+from fastapi import FastAPI, Request
+
 from app.auth import issue_token, read_token, SessionToken
 from app.csrf import new_token, verify
-from app.ratelimit import Limiter
+from app.ratelimit import Limiter, client_ip
+
+
+def _req(peer: str, headers: dict[str, str], trusted: frozenset[str] = frozenset({"10.0.0.2"})):
+    app = FastAPI()
+    app.state.settings = SimpleNamespace(trusted_proxies=trusted)
+    return Request({"type": "http", "app": app, "client": (peer, 0),
+                    "headers": [(k.encode(), v.encode()) for k, v in headers.items()]})
 
 
 def test_token_roundtrip():
@@ -38,3 +49,17 @@ def test_ratelimit_backoff_and_reset():
     assert not lim.allowed("ip1", now=2.5)
     lim.reset("ip1")
     assert lim.allowed("ip1", now=2.5)
+
+
+def test_client_ip_ignores_header_from_untrusted_peer():
+    r = _req("203.0.113.9", {"cf-connecting-ip": "1.1.1.1"})
+    assert client_ip(r) == "203.0.113.9"
+
+
+def test_client_ip_uses_header_from_trusted_peer():
+    r = _req("10.0.0.2", {"cf-connecting-ip": "1.1.1.1"})
+    assert client_ip(r) == "1.1.1.1"
+
+
+def test_client_ip_falls_back_to_peer_without_header():
+    assert client_ip(_req("10.0.0.2", {})) == "10.0.0.2"

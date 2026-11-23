@@ -119,8 +119,8 @@ Weighting ramps so enthusiasm dominates: stars map to weights `1–2 → 0` (won
 | `VAPID_SUBJECT` | `mailto:admin@example.com` | Contact `sub` claim sent with push messages. |
 | `VAPID_AUTOGEN` | `1` | Set to `0` to disable auto-generating/persisting push keys. |
 | `ALERT_LEAD_MINUTES` | `5` | How many minutes before a slot ends to send the heads-up push. |
-| `TRUSTED_PROXIES` | loopback | Extra peer IPs whose `CF-Connecting-IP` is trusted for rate-limiting. |
-| `RUN_MIGRATIONS` | unset | Set to `1` to run Alembic on startup (schema changes only). |
+| `TRUSTED_PROXIES` | loopback | Extra peer IPs whose `CF-Connecting-IP` is trusted for rate-limiting (Caddy sets this header). |
+| `RUN_MIGRATIONS` | unset | Set to `1` to run Alembic on startup (schema changes only). A brand-new DB is stamped at head automatically. |
 
 > **Web Push keys must stay stable.** Rotating the VAPID keypair silently invalidates every
 > existing subscription. The default behavior persists a generated keypair to the data volume
