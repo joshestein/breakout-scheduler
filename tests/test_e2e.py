@@ -629,9 +629,20 @@ def test_console_explains_cards_and_unplaced_sessions(app):
     assert "host: Ann" in html and "2 seated / 10 seats" in html and "★5×2" in html
     assert "1 want it, needs 2" in html                 # Beta: below its own minimum
     assert "host busy: Ann runs Alpha" in html          # Delta: its host is in Alpha
-    assert "not picked: 2 want it" in html              # Gamma: lost the only room
+    assert "no host: nobody runs it" in html            # Gamma: nobody runs it
+    assert "⚠ no host" not in html
     assert "3 of 9 have a session" in html              # Ann + G1 + G2, of the 2 hosts + 7 raters
     assert "Quiet" in html and "haven" in html          # non-raters are listed
+
+    # placed by hand, a session with no host stays on the grid but is flagged
+    with sf() as s:
+        ts_id = s.scalar(select(Timeslot).where(Timeslot.round_id == rid)).id
+        room_id = s.scalar(select(Room).where(Room.name == "Lib")).id
+    _post(admin, "/admin/force-place", csrf, {"round_id": rid, "timeslot_id": ts_id,
+                                             "room_id": room_id, "proposal_id": pid("Gamma")})
+    _post(admin, "/admin/solve", csrf, {"round_id": rid})     # pinned: Generate keeps it
+    html = admin.get("/admin?round_id=%d" % rid).text
+    assert "⚠ no host" in html and "2 seated / 10 seats" in html
 
 
 def test_console_badge_uses_clamped_floor(app):
@@ -724,4 +735,46 @@ def test_removed_session_fans_still_counted(app):
     _post(admin, "/admin/remove", csrf, {"round_id": rid, "proposal_id": gone})
     html = admin.get("/admin?round_id=%d" % rid).text
     assert "haven't rated · 1" in html and "Kim" in html
+
+
+def test_published_view_shows_the_solver_seat_not_the_top_star(app):
+    # Kim and Lee both rate Alpha above Beta, but Beta needs a guest to run (its host
+    # Bob wants nothing else), so the solver seats one of them in Beta. That person
+    # must be sent to Beta, not to their top-rated Alpha.
+    csrf = _csrf(TestClient(app)); admin = TestClient(app)
+    _post(admin, "/events", csrf, {"name": "R", "participant_code": "p", "admin_code": "a",
+                                   "admin_name": "Org", "rooms": "Big, 10\nSmall, 1"})
+    _post(admin, "/admin/round", csrf, {"name": "R1", "min_interest": 1})
+    sf = app.state.session_factory
+    rid = app_round_id(sf)
+    _post(admin, "/admin/timeslot", csrf, {"round_id": rid, "name": "14:00", "duration_minutes": "45"})
+
+    def person(name):
+        c = TestClient(app); _post(c, "/enter", csrf, {"code": "p", "name": name}); return c
+
+    def pid(title):
+        with sf() as s:
+            return s.scalar(select(Proposal).where(Proposal.title == title)).id
+
+    def seat(client):
+        go = re.search(r'<li class="go">(.*?)</li>', client.get("/published").text, re.S)
+        return go and re.search(r'class="what">([^<]+)', go.group(1)).group(1).strip()
+
+    ann, bob = person("Ann"), person("Bob")
+    _post(ann, "/propose", csrf, {"title": "Alpha"})
+    _post(bob, "/propose", csrf, {"title": "Beta"})
+    guests = [person("Kim"), person("Lee")]
+    for g in guests:
+        _post(g, "/rate", csrf, {"proposal_id": pid("Alpha"), "stars": 5})
+        _post(g, "/rate", csrf, {"proposal_id": pid("Beta"), "stars": 4})
+    _post(admin, "/admin/solve", csrf, {"round_id": rid})
+    _post(admin, "/admin/publish", csrf, {"round_id": rid})
+
+    assert sorted(seat(g) for g in guests) == ["Alpha", "Beta"]
+    assert seat(ann) == "Alpha" and seat(bob) == "Beta"
+
+    # an edit after publishing updates the seats at once
+    _post(admin, "/admin/remove", csrf, {"round_id": rid, "proposal_id": pid("Beta")})
+    assert seat(bob) is None
+    assert "No seat was picked for you here" in bob.get("/published").text
 

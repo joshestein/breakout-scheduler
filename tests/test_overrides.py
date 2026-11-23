@@ -70,6 +70,7 @@ def test_evaluate_current_scores_the_actual_grid_not_a_resolve(session):
     ts = RD.add_timeslot(s, round_id=rnd.id, name="14:00", position=0)
     u = _p(s, e, "Al")
     a = P.propose(s, event_id=e.id, title="AI", created_by=u.id, runner=False)
+    P.set_runner(s, a.id, _p(s, e, "Host").id, True)   # a session needs a host
     RT.set_rating(s, participant_id=u.id, proposal_id=a.id, stars=5)
     # nothing placed yet -> the grid is empty, so the rater is NOT covered (no 100%)
     r = RD.evaluate_current(s, rnd.id)
@@ -89,6 +90,7 @@ def test_min_interest_override(session):
     RD.add_timeslot(s, round_id=rnd.id, name="A", position=0)
     u = _p(s, e, "U1")
     a = P.propose(s, event_id=e.id, title="A", created_by=u.id, runner=False)
+    P.set_runner(s, a.id, _p(s, e, "Host").id, True)   # a session needs a host
     RT.set_rating(s, participant_id=u.id, proposal_id=a.id, stars=5)  # only 1 interested
     # default min_interest=3 -> excluded
     assert all(c.id != a.id for c in build_problem(s, rnd.id).candidates)
@@ -106,6 +108,7 @@ def test_regenerate_pins_and_preserves_started_sessions(session):
     RD.add_timeslot(s, round_id=rnd.id, name="B", position=1)
     u = _p(s, e, "Al")
     a = P.propose(s, event_id=e.id, title="Talk", created_by=u.id, runner=False)
+    P.set_runner(s, a.id, _p(s, e, "Host").id, True)   # a session needs a host
     RT.set_rating(s, participant_id=u.id, proposal_id=a.id, stars=5)
     RD.apply_result(s, rnd.id, RD.solve_round(s, rnd.id))
     placed = s.scalar(select(Placement).where(Placement.proposal_id == a.id))

@@ -72,6 +72,37 @@ def test_floor_counts_seated_guests_not_ratings():
             assert pl.seated_guests >= 2
 
 
+def test_fixed_grid_scoring_fills_floors_and_reports_seats():
+    # A (host 1) and B (host 2) both run. Guests 3 and 4 prefer A, but B needs one
+    # guest. The scorer must keep B's floor (as Generate did), not drain B to 0.
+    p = Problem(
+        slots=[Slot(id=1, position=0, rooms={10: 10, 11: 1})],
+        candidates=[Candidate(id=100, runners=frozenset({1})),
+                    Candidate(id=200, runners=frozenset({2}))],
+        present=frozenset({1, 2, 3, 4}),
+        stars={(3, 100): 5, (4, 100): 5, (3, 200): 4, (4, 200): 4},
+        fixed=frozenset({(100, 1, 10), (200, 1, 11)}),
+    )
+    r = build_and_solve(p)
+    seats = {pl.candidate_id: pl.seated_guests for pl in r.placements}
+    assert seats == {100: 1, 200: 1}
+    assert r.assignments[(1, 1)] == 100 and r.assignments[(2, 1)] == 200
+    assert sorted(r.assignments[(u, 1)] for u in (3, 4)) == [100, 200]
+
+
+def test_fixed_grid_scoring_below_floor_is_not_infeasible():
+    # a hand-placed session nobody else wants still scores (floor is soft here)
+    p = Problem(
+        slots=[Slot(id=1, position=0, rooms={10: 10})],
+        candidates=[Candidate(id=100, runners=frozenset({1}), min_seated=3)],
+        present=frozenset({1}),
+        stars={},
+        fixed=frozenset({(100, 1, 10)}),
+    )
+    r = build_and_solve(p)
+    assert r.status in ("OPTIMAL", "FEASIBLE") and r.assignments == {(1, 1): 100}
+
+
 def test_pin_skips_floor():
     # nobody wants 100, but the admin pinned it: it runs and the model stays feasible
     p = Problem(

@@ -168,6 +168,7 @@ def test_apply_result_rejects_infeasible_and_keeps_grid(session):
     e, rooms, rnd, ts = _round_with_two_rooms(session)
     u1 = _p(session, e, "U1")
     a = P.propose(session, event_id=e.id, title="A", created_by=u1.id, runner=False)
+    P.set_runner(session, a.id, _p(session, e, "Host").id, True)
     R.set_rating(session, participant_id=u1.id, proposal_id=a.id, stars=5)
     good = RD.solve_round(session, rnd.id)
     RD.apply_result(session, rnd.id, good)
