@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.models import (Event, Participant, Proposal, ProposalRunner, Rating, Room,
                         Round, Timeslot, Placement)
 from app.types import INTERESTED_STARS
+from app.solver_input import min_seated
 from app.deps import get_session, require_admin, require_csrf, load_participant
 from app.render import render
 from app.scoping import (owned_round, owned_proposal, owned_timeslot, owned_placement,
@@ -41,22 +42,6 @@ def _current_round(session: Session, event_id: int, round_id: int | None) -> Rou
         Round.event_id == event_id, Round.status != "archived").order_by(Round.id.desc()))
 
 
-def _agg(session: Session, proposal_id: int) -> dict:
-    rows = session.scalars(select(Rating).where(Rating.proposal_id == proposal_id)).all()
-    hosts = set(session.scalars(select(ProposalRunner.participant_id).where(
-        ProposalRunner.proposal_id == proposal_id)))
-    hist = [0, 0, 0, 0, 0]
-    for r in rows:
-        hist[r.stars - 1] += 1
-    # hosts don't count toward a session's floor, so don't count them here either
-    interested = sum(1 for r in rows
-                     if r.stars >= INTERESTED_STARS and r.participant_id not in hosts)
-    avg = round(sum(r.stars for r in rows) / len(rows), 1) if rows else 0
-    # interest is shown to the organizer regardless of rater count (per request)
-    return {"interested": interested, "avg": avg, "hist": hist,
-            "n_raters": len(rows), "suppressed": False}
-
-
 def _eval_fingerprint(session: Session, rnd: Round) -> tuple:
     """A cheap content hash of everything `evaluate_current` depends on. When it's
     unchanged we reuse the cached Result instead of re-running CP-SAT (the 5s poll
@@ -83,43 +68,86 @@ def _eval_fingerprint(session: Session, rnd: Round) -> tuple:
     return (rnd.min_interest, ts_fp, rooms_fp, props_fp, pls_fp, ratings_fp, runners_fp)
 
 
+def _session_info(p: Proposal, rnd: Round, ratings: list[Rating], hosts: set[int],
+                  names: dict[int, str]) -> dict:
+    """Counts only (no per-person stars): who hosts, how many people besides the
+    hosts want it, and how many gave each star level."""
+    mine = [r for r in ratings if r.proposal_id == p.id]
+    guests = [r for r in mine if r.participant_id not in hosts]
+    stars = {s: sum(1 for r in guests if r.stars == s) for s in (5, 4, 3)}
+    return {
+        "p": p,
+        "hosts": sorted(names.get(u, "?") for u in hosts),
+        "by": names.get(p.created_by),
+        "interested": sum(stars.values()),
+        "stars": stars,
+        "n_raters": len(mine),
+        "avg": round(sum(r.stars for r in mine) / len(mine), 1) if mine else 0,
+        "floor": min_seated(p, rnd),
+    }
+
+
+def _why_unplaced(x: dict, hosts_of: dict[int, set[int]], placed_at: dict[int, Placement],
+                  timeslots: list[Timeslot], titles: dict[int, str],
+                  names: dict[int, str]) -> str:
+    """One short, always-true reason an active session is not on the grid."""
+    if x["interested"] < x["floor"]:
+        return f'{x["interested"]} want it, needs {x["floor"]}'
+    mine = hosts_of.get(x["p"].id, set())
+    if mine and timeslots:
+        busy_with: list[int] = []
+        for ts in timeslots:
+            here = [q for q, pl in placed_at.items()
+                    if pl.timeslot_id == ts.id and hosts_of.get(q, set()) & mine]
+            if not here:
+                break
+            busy_with += here
+        else:
+            who = ", ".join(sorted(names.get(u, "?") for u in mine))
+            what = ", ".join(sorted({titles[q] for q in busy_with}))
+            return f"host busy: {who} runs {what}"
+    return f'not picked: {x["interested"]} want it'
+
+
 def _context(request: Request, session: Session, event: Event, rnd: Round | None) -> dict:
     rooms = list(session.scalars(select(Room).where(Room.event_id == event.id).order_by(Room.id)))
-    # pool is scoped to THIS round (each round is self-contained)
-    proposals = [] if rnd is None else list(session.scalars(select(Proposal).where(
-        Proposal.round_id == rnd.id, Proposal.status == "active").order_by(Proposal.id)))
-    titles = {p.id: p.title for p in session.scalars(
-        select(Proposal).where(Proposal.event_id == event.id))}
-    names = {u.id: u.display_name for u in session.scalars(
-        select(Participant).where(Participant.event_id == event.id))}
-
-    pool = [{"p": p, "by": names.get(p.created_by), **_agg(session, p.id)}
-            for p in proposals]
-    pool.sort(key=lambda x: (-x["interested"], x["p"].id))
-
+    people = list(session.scalars(select(Participant).where(Participant.event_id == event.id)))
+    names = {u.id: u.display_name for u in people}
     join_url, schedule_url = _share_urls(request, event)
-    schedule_md = RD.schedule_markdown(session, rnd.id) if rnd else ""
-
-    ctx = {"event": event, "rnd": rnd, "rooms": rooms, "pool": pool,
-           "join_url": join_url, "schedule_url": schedule_url, "schedule_md": schedule_md,
-           "titles": titles, "names": names,
-           "timeslots": [], "grid": {}, "consequences": None, "placed_ids": set(),
-           "unplaced": [], "all_rounds": list(session.scalars(
+    ctx = {"event": event, "rnd": rnd, "rooms": rooms, "pool": [], "removed": [],
+           "join_url": join_url, "schedule_url": schedule_url,
+           "schedule_md": RD.schedule_markdown(session, rnd.id) if rnd else "",
+           "timeslots": [], "placements": {}, "cells": {}, "unplaced": [],
+           "all_rounds": list(session.scalars(
                select(Round).where(Round.event_id == event.id).order_by(Round.id.desc())))}
     if rnd is None:
         return ctx
 
+    # proposals, ratings and hosts are scoped to THIS round (each round is self-contained)
+    props = list(session.scalars(select(Proposal).where(
+        Proposal.round_id == rnd.id).order_by(Proposal.id)))
+    prop_ids = [p.id for p in props]
+    titles = {p.id: p.title for p in props}
+    ratings = list(session.scalars(select(Rating).where(
+        Rating.proposal_id.in_(prop_ids)))) if prop_ids else []
+    hosts_of: dict[int, set[int]] = {p.id: set() for p in props}
+    if prop_ids:
+        for pr in session.scalars(select(ProposalRunner).where(
+                ProposalRunner.proposal_id.in_(prop_ids))):
+            hosts_of[pr.proposal_id].add(pr.participant_id)
+
     timeslots = list(session.scalars(select(Timeslot).where(
         Timeslot.round_id == rnd.id).order_by(Timeslot.position)))
-    placements = {}
-    placed_ids = set()
-    for ts in timeslots:
-        for pl in session.scalars(select(Placement).where(Placement.timeslot_id == ts.id)):
-            placements[(ts.id, pl.room_id)] = pl
-            placed_ids.add(pl.proposal_id)
+    placements: dict[tuple[int, int], Placement] = {}
+    placed_at: dict[int, Placement] = {}
+    ts_ids = [ts.id for ts in timeslots]
+    if ts_ids:
+        for pl in session.scalars(select(Placement).where(Placement.timeslot_id.in_(ts_ids))):
+            placements[(pl.timeslot_id, pl.room_id)] = pl
+            placed_at[pl.proposal_id] = pl
 
-    # consequences for the EXACT current grid — cached by a content fingerprint so
-    # the 5s poll doesn't re-run CP-SAT when nothing relevant changed.
+    # stats for the EXACT current grid, cached by a content fingerprint so the 5s poll
+    # doesn't re-run CP-SAT when nothing relevant changed.
     fp = _eval_fingerprint(session, rnd)
     cache = request.app.state.eval_cache
     hit = cache.get(rnd.id)
@@ -129,65 +157,58 @@ def _context(request: Request, session: Session, event: Event, rnd: Round | None
         result = RD.evaluate_current(session, rnd.id)
         cache[rnd.id] = (fp, result)
 
-    # present people who RATED but found nothing they'd attend (and run nothing) —
-    # shown as not-covered, with their own reason rather than a capacity problem.
-    prop_ids_all = [p.id for p in session.scalars(select(Proposal).where(
-        Proposal.round_id == rnd.id))]
-    rated_pids, interested_pids = set(), set()
-    if prop_ids_all:
-        for r in session.scalars(select(Rating).where(Rating.proposal_id.in_(prop_ids_all))):
-            rated_pids.add(r.participant_id)
-            if r.stars >= INTERESTED_STARS:
-                interested_pids.add(r.participant_id)
-    runner_pids = set()
-    if prop_ids_all:
-        runner_pids = {pr.participant_id for pr in session.scalars(
-            select(ProposalRunner).where(ProposalRunner.proposal_id.in_(prop_ids_all)))}
-    no_interest_ids = [u for u in rated_pids
-                       if u not in interested_pids and u not in runner_pids]
-    no_interest = sorted(names.get(u, u) for u in no_interest_ids)
+    info = {p.id: _session_info(p, rnd, ratings, hosts_of[p.id], names) for p in props}
+    active = [info[p.id] for p in props if p.status == "active"]
+    room_name = {r.id: r.name for r in rooms}
+    ts_name = {ts.id: ts.name for ts in timeslots}
+    for x in active:
+        pl = placed_at.get(x["p"].id)
+        x["where"] = f"{ts_name[pl.timeslot_id]} · {room_name.get(pl.room_id, '?')}" if pl else None
+        x["why"] = None if pl else _why_unplaced(x, hosts_of, placed_at, timeslots, titles, names)
+    pool = sorted(active, key=lambda x: (-x["interested"], x["p"].id))
+    unplaced = [x for x in pool if x["where"] is None]
+    removed = [info[p.id] for p in props if p.status != "active"]
 
-    # coverage denominator includes the no-interest folks (they ARE not covered)
-    denom = result.n_present + len(no_interest_ids)
-    cov = {}
+    # card for each filled cell: the session's counts plus what the solver seated
+    seated = {(c.slot_id, c.candidate_id): c for c in result.placements}
+    cells = {}
+    for key, pl in placements.items():
+        x = info.get(pl.proposal_id)
+        c = seated.get((pl.timeslot_id, pl.proposal_id))
+        if x is None or c is None:
+            continue
+        guests = c.projected_attendance - len(hosts_of[pl.proposal_id])
+        cells[key] = {**x, "guests": guests, "capacity": c.capacity, "overflow": c.overflow,
+                      "below_floor": guests < x["floor"]}
+
+    # people, not points
+    admin_ids = {u.id for u in people if u.is_admin}
+    host_ids = set().union(*hosts_of.values()) if hosts_of else set()
+    rated_ids = {r.participant_id for r in ratings}
+    wants_ids = {r.participant_id for r in ratings if r.stars >= INTERESTED_STARS}
+    no_interest_ids = rated_ids - wants_ids - host_ids
+    not_rated = sorted(u.display_name for u in people
+                       if u.id not in admin_ids and u.id not in rated_ids and u.id not in host_ids)
+    slots = []
     for ts in timeslots:
-        covered = result.n_present - len(result.left_out.get(ts.id, []))
-        cov[ts.id] = round(100.0 * covered / denom, 1) if denom else 0.0
-    left = {ts.id: [names.get(u, u) for u in result.left_out.get(ts.id, [])] for ts in timeslots}
-    forced = {ts.id: [names.get(u, u) for u in result.forced_uncovered.get(ts.id, [])]
-              for ts in timeslots}
-    cellstats = {(pl.slot_id, pl.candidate_id): pl for pl in result.placements}
-
-    unplaced = [x for x in pool if x["p"].id not in placed_ids]
-
-    # diagnostics: why is the grid empty? (the #1 "solver doesn't work" cause)
-    prop_ids = [p.id for p in session.scalars(select(Proposal).where(
-        Proposal.round_id == rnd.id))]
-    rated_count = 0
-    if prop_ids:
-        rated_count = session.scalar(select(func.count(func.distinct(Rating.participant_id)))
-                                     .where(Rating.proposal_id.in_(prop_ids))) or 0
-
-    def floor(p: Proposal) -> int:
-        return max(1, p.min_interest_override if p.min_interest_override is not None
-                   else rnd.min_interest)
-    n_eligible = sum(1 for x in pool if x["interested"] >= floor(x["p"]))
-    diag = {
-        "has_timeslots": bool(timeslots),
-        "n_proposals": len(pool),
-        "n_eligible": n_eligible,
-        "n_rated": rated_count,
-        "n_placed": len(placements),
-    }
+        out = result.left_out.get(ts.id, [])
+        full = set(result.forced_uncovered.get(ts.id, []))
+        slots.append({
+            "ts": ts,
+            "covered": result.n_present - len(out),
+            "full": sorted(names.get(u, "?") for u in out if u in full),
+            "nothing": sorted(names.get(u, "?") for u in out if u not in full),
+        })
 
     ctx.update({
-        "timeslots": timeslots, "placements": placements,
-        "placed_ids": placed_ids,
-        "coverage": cov, "left_out": left, "forced": forced, "cellstats": cellstats,
-        "total_interest": result.total_interest, "unplaced": unplaced,
-        "n_present": result.n_present, "no_interest": no_interest,
-        "top_choice_pct": result.top_choice_pct,
-        "pin_conflicts": result.pin_conflicts, "diag": diag,
+        "timeslots": timeslots, "placements": placements, "cells": cells,
+        "pool": pool, "unplaced": unplaced, "removed": removed, "placed_at": placed_at,
+        "slots": slots, "n_people": result.n_present + len(no_interest_ids),
+        "top_pick": round(result.top_choice_pct * result.n_present / 100),
+        "no_interest": sorted(names.get(u, "?") for u in no_interest_ids),
+        "not_rated": not_rated, "pin_conflicts": result.pin_conflicts,
+        "n_eligible": sum(1 for x in pool if x["interested"] >= x["floor"]),
+        "n_rated": len(rated_ids),
     })
     return ctx
 
@@ -391,52 +412,21 @@ def pin(request: Request, round_id: int = Form(...), placement_id: int = Form(..
     return _respond(request, session, event, round_id)
 
 
-@router.post("/drop")
-def drop(request: Request, round_id: int = Form(...), placement_id: int = Form(...),
-         token=Depends(require_admin), session: Session = Depends(get_session),
-         _: None = Depends(require_csrf)):
-    event = _event_of(session, token)
-    owned_placement(session, placement_id, event.id)
-    RD.drop_placement(session, placement_id)
-    return _respond(request, session, event, round_id)
-
-
-@router.post("/move")
-def move(request: Request, round_id: int = Form(...), placement_id: int = Form(...),
-         timeslot_id: int = Form(...), room_id: int = Form(...),
-         token=Depends(require_admin), session: Session = Depends(get_session),
-         _: None = Depends(require_csrf)):
-    event = _event_of(session, token)
-    owned_placement(session, placement_id, event.id)
-    owned_timeslot(session, timeslot_id, event.id)
-    owned_room(session, room_id, event.id)
-    moved = session.get(Placement, placement_id)
-    _same_round(session, timeslot_id, moved.proposal_id)
-    if session.scalar(select(Placement).where(Placement.timeslot_id == timeslot_id,
-                                              Placement.room_id == room_id)):
-        raise HTTPException(status_code=409, detail="cell already occupied")
-    RD.move_placement(session, placement_id, timeslot_id=timeslot_id, room_id=room_id)
-    return _respond(request, session, event, round_id)
-
-
 @router.post("/force-place")
 def force_place(request: Request, round_id: int = Form(...), timeslot_id: int = Form(...),
                 room_id: int = Form(...), proposal_id: int = Form(...),
                 token=Depends(require_admin), session: Session = Depends(get_session),
                 _: None = Depends(require_csrf)):
+    """Put a session in a cell by hand (pinned). Works on a filled cell (the old
+    session goes back to the pool) and on a placed session (it moves)."""
     event = _event_of(session, token)
     owned_timeslot(session, timeslot_id, event.id)
-    owned_proposal(session, proposal_id, event.id)
+    prop = owned_proposal(session, proposal_id, event.id)
     owned_room(session, room_id, event.id)
     _same_round(session, timeslot_id, proposal_id)
-    if session.scalar(select(Placement).where(Placement.timeslot_id == timeslot_id,
-                                              Placement.room_id == room_id)):
-        raise HTTPException(status_code=409, detail="cell already occupied")
-    round_ts = select(Timeslot.id).where(Timeslot.round_id == session.get(Timeslot, timeslot_id).round_id)
-    if session.scalar(select(Placement).where(Placement.proposal_id == proposal_id,
-                                              Placement.timeslot_id.in_(round_ts))):
-        raise HTTPException(status_code=409, detail="session already placed in this round")
-    RD.force_place(session, timeslot_id=timeslot_id, room_id=room_id, proposal_id=proposal_id)
+    if prop.status != "active":
+        raise HTTPException(status_code=400, detail="This session was removed. Restore it first.")
+    RD.place(session, timeslot_id=timeslot_id, room_id=room_id, proposal_id=proposal_id)
     return _respond(request, session, event, round_id)
 
 
@@ -448,15 +438,26 @@ def _same_round(session: Session, timeslot_id: int, proposal_id: int) -> None:
         raise HTTPException(status_code=400, detail="proposal and timeslot are in different rounds")
 
 
-# ---- proposal & participant management -------------------------------------
+# ---- proposal management ----------------------------------------------------
 
-@router.post("/retire")
-def retire(request: Request, round_id: int = Form(...), proposal_id: int = Form(...),
+@router.post("/remove")
+def remove(request: Request, round_id: int = Form(...), proposal_id: int = Form(...),
            token=Depends(require_admin), session: Session = Depends(get_session),
            _: None = Depends(require_csrf)):
+    """Take a session out of the round: off the grid, and Generate won't use it."""
     event = _event_of(session, token)
     owned_proposal(session, proposal_id, event.id)
-    P.retire(session, proposal_id)
+    RD.remove_session(session, proposal_id)
+    return _respond(request, session, event, round_id)
+
+
+@router.post("/restore")
+def restore(request: Request, round_id: int = Form(...), proposal_id: int = Form(...),
+            token=Depends(require_admin), session: Session = Depends(get_session),
+            _: None = Depends(require_csrf)):
+    event = _event_of(session, token)
+    owned_proposal(session, proposal_id, event.id)
+    P.reactivate(session, proposal_id)
     return _respond(request, session, event, round_id)
 
 

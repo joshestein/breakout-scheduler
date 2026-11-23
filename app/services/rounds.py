@@ -159,16 +159,11 @@ def set_pin(session: Session, placement_id: int, pinned: bool) -> None:
     session.flush()
 
 
-def drop_placement(session: Session, placement_id: int) -> None:
-    session.delete(session.get(Placement, placement_id))
-    session.flush()
-
-
-def move_placement(session: Session, placement_id: int, *, timeslot_id: int,
-                   room_id: int) -> None:
-    p = session.get(Placement, placement_id)
-    p.timeslot_id = timeslot_id
-    p.room_id = room_id
+def remove_session(session: Session, proposal_id: int) -> None:
+    """Retire a session and take it off the grid. Generate never places a retired
+    session, so the removal sticks until it is restored."""
+    session.execute(delete(Placement).where(Placement.proposal_id == proposal_id))
+    session.get(Proposal, proposal_id).status = "retired"
     session.flush()
 
 
@@ -188,8 +183,15 @@ def pin_started_placements(session: Session, round_id: int) -> int:
     return n
 
 
-def force_place(session: Session, *, timeslot_id: int, room_id: int,
-                proposal_id: int) -> Placement:
+def place(session: Session, *, timeslot_id: int, room_id: int,
+          proposal_id: int) -> Placement:
+    """Hand placement (pinned). The cell's old session goes back to the pool, and
+    the session moves if it was already placed elsewhere in the round."""
+    round_id = session.get(Timeslot, timeslot_id).round_id
+    for pl in _placements(session, round_id):
+        if pl.proposal_id == proposal_id or (pl.timeslot_id, pl.room_id) == (timeslot_id, room_id):
+            session.delete(pl)
+    session.flush()
     p = Placement(timeslot_id=timeslot_id, room_id=room_id, proposal_id=proposal_id,
                   pinned=True)
     session.add(p); session.flush()

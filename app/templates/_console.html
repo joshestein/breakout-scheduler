@@ -62,17 +62,17 @@
         <button class="btn small">add</button>
       </form>
       {% for x in pool %}
-      {% set eff = [1, x.p.min_interest_override if x.p.min_interest_override is not none else rnd.min_interest] | max %}
       <div class="pool-item">
         <div class="pi-title"><span class="pi-name">{{ x.p.title }}</span>
-          {% if x.p.max_attendees %}<span class="badge2" title="host caps at {{ x.p.max_attendees }} attendees">cap {{ x.p.max_attendees }}</span>{% endif %}
-          {% if x.interested < eff %}<span class="below" title="needs {{ eff }} interested (not counting hosts) to run">won't run</span>{% endif %}
+          {% if x.p.max_attendees %}<span class="badge2" title="the host caps it at {{ x.p.max_attendees }} people besides the hosts">cap {{ x.p.max_attendees }}</span>{% endif %}
+          {% if x.floor != rnd.min_interest %}<span class="badge2" title="the host set their own minimum">min {{ x.floor }}</span>{% endif %}
         </div>
         <div class="pi-agg">
-          <span class="pill">♥ {{ x.interested }}</span>
-          {% if x.by %}<span class="muted tiny by-who" title="submitted by {{ x.by }}">by {{ x.by }}</span>{% endif %}
-          <span class="muted tiny">{{ x.n_raters }} rated · avg {{ x.avg }}</span>
+          <span class="pill" title="people besides the hosts who rated it ★3 or more">♥ {{ x.interested }}</span>
+          <span class="muted tiny">{{ ('host: ' ~ (x.hosts | join(', '))) if x.hosts else 'no host' }}</span>
+          <span class="muted tiny">{{ x.n_raters }} rated · avg ★{{ x.avg }}</span>
         </div>
+        <div class="pi-status {% if not x.where %}off{% endif %}">{{ ('on the grid: ' ~ x.where) if x.where else x.why }}</div>
         <div class="pi-actions">
           <details class="mini inline name-edit"><summary><span class="t-edit">rename</span><span class="t-cancel">cancel</span></summary>
             <form method="post" action="/admin/proposal-edit" hx-post="/admin/proposal-edit" class="inline-edit">
@@ -81,13 +81,26 @@
               <input name="title" value="{{ x.p.title }}" maxlength="300"><button class="lnk">save</button>
             </form>
           </details>
-          <form method="post" action="/admin/retire" hx-post="/admin/retire" hx-confirm="Retire “{{ x.p.title }}”?">
+          <form method="post" action="/admin/remove" hx-post="/admin/remove" hx-confirm="Remove “{{ x.p.title }}” from this round? Generate won't place it until you restore it.">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}">
-            <input type="hidden" name="proposal_id" value="{{ x.p.id }}"><button class="lnk">retire</button>
+            <input type="hidden" name="proposal_id" value="{{ x.p.id }}"><button class="lnk">remove</button>
           </form>
         </div>
       </div>
       {% else %}<div class="muted tiny">No sessions yet.</div>{% endfor %}
+      {% if removed %}
+      <details class="mini"><summary>removed · {{ removed|length }}</summary>
+        {% for x in removed %}
+        <div class="pool-item removed">
+          <span class="pi-name">{{ x.p.title }}</span>
+          <form method="post" action="/admin/restore" hx-post="/admin/restore" class="inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}">
+            <input type="hidden" name="proposal_id" value="{{ x.p.id }}"><button class="lnk">restore</button>
+          </form>
+        </div>
+        {% endfor %}
+      </details>
+      {% endif %}
     </div>
 
     <div class="rail-sec scroll">
@@ -212,17 +225,18 @@
       {% endif %}
 
       {# Diagnostic banner — always names the admin's next action #}
-      {% if diag.n_proposals == 0 %}
+      {% if not pool %}
         <div class="diag ok">✓ Board ready. Now add sessions (left rail) or have people propose &amp; rate at the participant link.</div>
-      {% elif diag.n_eligible == 0 %}
-        <div class="diag warn">⚠ <b>No sessions are eligible yet.</b> {{ diag.n_proposals }} proposed · {{ diag.n_rated }} {{ 'person has' if diag.n_rated == 1 else 'people have' }} rated, but none has enough interested people besides its hosts (★3+). Get ratings, lower “min people per session”, or place a session by hand.</div>
-      {% elif diag.n_placed == 0 %}
-        <div class="diag ok">✓ <b>{{ diag.n_eligible }}</b> eligible session{{ 's' if diag.n_eligible != 1 }} — click <b>⚙ Generate</b>.</div>
+      {% elif n_eligible == 0 %}
+        <div class="diag warn">⚠ <b>No sessions are eligible yet.</b> {{ pool|length }} proposed · {{ n_rated }} {{ 'person has' if n_rated == 1 else 'people have' }} rated, but none has enough interested people besides its hosts (★3+). Get ratings, lower “min people per session”, or place a session by hand.</div>
+      {% elif not placements %}
+        <div class="diag ok">✓ <b>{{ n_eligible }}</b> eligible session{{ 's' if n_eligible != 1 }}. Click <b>⚙ Generate</b>.</div>
       {% else %}
-        <div class="diag info">{{ diag.n_placed }} placed · {{ diag.n_eligible }} eligible · {{ diag.n_rated }} rated · interest {{ total_interest }}</div>
+        <div class="diag info">{{ placements|length }} on the grid · {{ unplaced|length }} not · {{ n_rated }} {{ 'person has' if n_rated == 1 else 'people have' }} rated</div>
       {% endif %}
 
-      <div id="grid-wrap" hx-get="/admin/grid?round_id={{ rnd.id }}" hx-trigger="every 5s"
+      {# refresh every 5s, but not while the admin is using a control in the grid #}
+      <div id="grid-wrap" hx-get="/admin/grid?round_id={{ rnd.id }}" hx-trigger="every 5s [!this.contains(document.activeElement)]"
            hx-target="this" hx-swap="innerHTML">
         {% include "_admin_grid.html" %}
       </div>

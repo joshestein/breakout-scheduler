@@ -165,7 +165,7 @@ def propose_delete(request: Request, proposal_id: int = Form(...),
                    _: None = Depends(require_csrf)):
     me, event = _me_event(session, token)
     _, rnd = _own_editable(session, me, event, proposal_id)
-    P.retire(session, proposal_id)
+    RD.remove_session(session, proposal_id)
     return render(request, "_rate_list.html", me=me, rows=_rows(session, me, rnd.id))
 
 

@@ -48,7 +48,7 @@ def test_evaluate_current_scores_force_placed_ineligible_session(session):
     u = _p(s, e, "U")
     a = P.propose(s, event_id=e.id, title="X", created_by=u.id, runner=False)
     RT.set_rating(s, participant_id=u.id, proposal_id=a.id, stars=5)    # 1 interested < 5
-    RD.force_place(s, timeslot_id=ts.id, room_id=room.id, proposal_id=a.id)
+    RD.place(s, timeslot_id=ts.id, room_id=room.id, proposal_id=a.id)
     r = RD.evaluate_current(s, rnd.id)
     assert any(pl.candidate_id == a.id for pl in r.placements)
 

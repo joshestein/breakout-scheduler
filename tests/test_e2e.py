@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from app.webapp import create_app
 from app.config import Settings
-from app.models import Event, Room, Round, Timeslot, Proposal
+from app.models import Event, Room, Round, Timeslot, Proposal, Placement
 
 
 @pytest.fixture
@@ -134,7 +134,7 @@ def test_cross_event_idor_blocked(app):
                     headers={"X-CSRFToken": csrf}, follow_redirects=False)
     assert r.status_code == 404
     # B's admin cannot retire A's proposal
-    r = adminB.post("/admin/retire", data={"round_id": a_round, "proposal_id": a_prop},
+    r = adminB.post("/admin/remove", data={"round_id": a_round, "proposal_id": a_prop},
                     headers={"X-CSRFToken": csrf}, follow_redirects=False)
     assert r.status_code == 404
     # B's admin cannot force-place using A's room (room IDOR)
@@ -474,7 +474,7 @@ def test_cross_round_placement_rejected_same_event(app):
     assert r.status_code == 400
 
 
-def test_force_place_rejects_second_placement_of_same_session(app):
+def test_place_by_hand_moves_swaps_and_remove_sticks(app):
     csrf = _csrf(TestClient(app)); admin = TestClient(app)
     _post(admin, "/events", csrf, {"name": "R", "participant_code": "p", "admin_code": "a",
                                    "admin_name": "Org", "rooms": "Lib, 10\nHall, 10"})
@@ -494,8 +494,32 @@ def test_force_place_rejects_second_placement_of_same_session(app):
         return admin.post("/admin/force-place", headers={"X-CSRFToken": csrf},
                           data={"round_id": rid, "timeslot_id": ts, "room_id": room,
                                 "proposal_id": pid}, follow_redirects=False)
+    def cells():
+        with sf() as s:
+            return sorted((p.room_id, p.proposal_id, p.pinned) for p in s.scalars(select(Placement)))
     assert place(room_ids[0]).status_code in (200, 303)
-    assert place(room_ids[1]).status_code == 409
+    assert cells() == [(int(room_ids[0]), pid, True)]
+    # placing the same session elsewhere moves it (never two placements)
+    assert place(room_ids[1]).status_code in (200, 303)
+    assert cells() == [(int(room_ids[1]), pid, True)]
+    # placing another session on a filled cell swaps it in
+    _post(c1, "/propose", csrf, {"title": "Other"})
+    with sf() as s:
+        other = s.scalar(select(Proposal).where(Proposal.title == "Other")).id
+    admin.post("/admin/force-place", headers={"X-CSRFToken": csrf},
+               data={"round_id": rid, "timeslot_id": ts, "room_id": room_ids[1],
+                     "proposal_id": other}, follow_redirects=False)
+    assert cells() == [(int(room_ids[1]), other, True)]
+    # remove sticks: the session leaves the grid, can't be placed, and comes back on restore
+    _post(admin, "/admin/remove", csrf, {"round_id": rid, "proposal_id": other})
+    assert cells() == []
+    assert admin.post("/admin/force-place", headers={"X-CSRFToken": csrf},
+                      data={"round_id": rid, "timeslot_id": ts, "room_id": room_ids[1],
+                            "proposal_id": other}, follow_redirects=False).status_code == 400
+    _post(admin, "/admin/solve", csrf, {"round_id": rid})
+    assert all(p != other for _, p, _ in cells())
+    _post(admin, "/admin/restore", csrf, {"round_id": rid, "proposal_id": other})
+    assert place(room_ids[0]).status_code in (200, 303)
 
 
 def test_description_is_stored(app):
@@ -526,7 +550,7 @@ def test_no_interest_rater_shown_in_console(app):
     pat = TestClient(app); _post(pat, "/enter", csrf, {"code": "p", "name": "Pat"})
     _post(pat, "/rate", csrf, {"proposal_id": pid, "stars": 2})   # "rather not" — wants nothing
     html = admin.get("/admin?round_id=%d" % rid).text
-    assert "didn't find any sessions interesting" in html
+    assert "rated every session ★1–2" in html
     assert "Pat" in html
 
 
@@ -558,3 +582,42 @@ def test_bad_csrf_rejected(app):
     resp = admin.post("/events", data={"name": "X", "participant_code": "p",
                                        "admin_code": "a"}, headers={"X-CSRFToken": "bogus"})
     assert resp.status_code == 400
+
+
+def test_console_explains_cards_and_unplaced_sessions(app):
+    csrf = _csrf(TestClient(app)); admin = TestClient(app)
+    _post(admin, "/events", csrf, {"name": "R", "participant_code": "p", "admin_code": "a",
+                                   "admin_name": "Org", "rooms": "Lib, 10"})
+    _post(admin, "/admin/round", csrf, {"name": "R1", "min_interest": 1})
+    sf = app.state.session_factory
+    rid = app_round_id(sf)
+    _post(admin, "/admin/timeslot", csrf, {"round_id": rid, "name": "14:00", "duration_minutes": "45"})
+
+    def person(name):
+        c = TestClient(app); _post(c, "/enter", csrf, {"code": "p", "name": name}); return c
+
+    def pid(title):
+        with sf() as s:
+            return s.scalar(select(Proposal).where(Proposal.title == title)).id
+
+    ann, bob = person("Ann"), person("Bob")
+    _post(ann, "/propose", csrf, {"title": "Alpha"})
+    _post(ann, "/propose", csrf, {"title": "Delta"})                     # Ann hosts both
+    _post(bob, "/propose", csrf, {"title": "Beta", "min_attendees": "2"})
+    _post(admin, "/admin/add-session", csrf, {"round_id": rid, "title": "Gamma"})  # no host
+    for name, title, stars in [("G1", "Alpha", 5), ("G2", "Alpha", 5), ("G3", "Beta", 3),
+                               ("G4", "Gamma", 3), ("G5", "Gamma", 3),
+                               ("G6", "Delta", 3), ("G7", "Delta", 3)]:
+        _post(person(name), "/rate", csrf, {"proposal_id": pid(title), "stars": stars})
+    person("Quiet")                                                       # never rates
+    _post(admin, "/admin/solve", csrf, {"round_id": rid})
+    html = admin.get("/admin?round_id=%d" % rid).text
+
+    # the one room goes to Alpha: it covers Ann (host) + 2 guests, and they rated it ★5
+    assert "host: Ann" in html and "2 seated / 10 seats" in html and "★5×2" in html
+    assert "1 want it, needs 2" in html                 # Beta: below its own minimum
+    assert "host busy: Ann runs Alpha" in html          # Delta: its host is in Alpha
+    assert "not picked: 2 want it" in html              # Gamma: lost the only room
+    assert "3 of 9 have a session" in html              # Ann + G1 + G2, of the 2 hosts + 7 raters
+    assert "Quiet" in html and "haven" in html          # non-raters are listed
+

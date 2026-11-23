@@ -255,6 +255,9 @@ label.tiny{display:flex;flex-direction:column;gap:.2rem;font-family:var(--mono);
 .pi-agg{display:flex;align-items:center;gap:.5rem;margin:.25rem 0}
 .pi-actions{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
 .pi-actions form{width:auto}
+.pi-status{font-family:var(--mono);font-size:.66rem;color:var(--forest);margin:.15rem 0 .25rem}
+.pi-status.off{color:var(--soft)}
+.pool-item.removed{display:flex;justify-content:space-between;align-items:center;gap:.5rem;color:var(--soft)}
 .cfgform{display:flex;flex-direction:column;gap:.4rem;padding:.5rem 0 .2rem}
 .cfgform .ck{font-family:var(--mono);font-size:.7rem;text-transform:none;letter-spacing:0}
 
@@ -305,6 +308,8 @@ label.tiny{display:flex;flex-direction:column;gap:.2rem;font-family:var(--mono);
 .cell.empty select{border:none;background:transparent;color:var(--soft);font-family:var(--mono);font-size:.74rem;border-radius:0}
 .cell.filled{background:var(--card)}
 .cell.over{box-shadow:inset 3px 0 0 var(--over)}
+.cell.below-floor{box-shadow:inset 3px 0 0 var(--soft)}
+.cell .place select{max-width:100%}
 .card .ct{font-family:var(--serif);font-size:.95rem;font-weight:600;line-height:1.15;padding:.5rem .55rem 0}
 .bar{height:4px;background:var(--fainter);margin:.4rem .55rem 0;overflow:hidden;border-radius:2px}
 .bar i{display:block;height:100%;background:var(--forest)}
