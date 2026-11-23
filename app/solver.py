@@ -10,9 +10,19 @@ MAX_TIME_S = 2.0
 
 
 def _weight(problem: Problem, u: int, cid: int, runners: frozenset[int]) -> int:
+    """Points for seating `u` in `cid`. A host earns nothing for their own session, so
+    a session never runs just because its host is keen on it."""
     if u in runners:
-        return WEIGHT[5]
+        return 0
     return WEIGHT.get(problem.stars.get((u, cid), 0), 0)
+
+
+def _new_solver() -> cp_model.CpSolver:
+    solver = cp_model.CpSolver()
+    solver.parameters.max_time_in_seconds = MAX_TIME_S
+    solver.parameters.random_seed = 1
+    solver.parameters.num_search_workers = 8
+    return solver
 
 
 def build_and_solve(problem: Problem) -> Result:
@@ -89,17 +99,16 @@ def build_and_solve(problem: Problem) -> Result:
             if non_runner:
                 m.add(sum(non_runner) <= sum(s.rooms[r] * v for r, v in rooms_of[(c.id, s.id)]))
 
-    # host's per-session seat cap: never seat more people than the host allows.
-    # Overflow people are routed to their next-best session by the coverage objective.
-    # Runners always fit, so a too-small cap can never make a session impossible.
+    # host's per-session cap on people besides the hosts (same basis as room seats and
+    # the floor). Overflow people are routed to their next-best session by the
+    # coverage objective. Hosts always fit.
     for c in problem.candidates:
         if c.max_attendees is None:
             continue
-        cap = max(c.max_attendees, sum(1 for u in problem.present if u in runner_of[c.id]))
         for s in slots:
-            here = attending(c.id, s.id)
-            if here:
-                m.add(sum(here) <= cap)
+            guests = attending(c.id, s.id, include_runners=False)
+            if guests:
+                m.add(sum(guests) <= c.max_attendees)
 
     # uncovered[(u, slot)] >= 1 - sum_c attend
     uncovered: dict[tuple[int, int], cp_model.IntVar] = {}
@@ -119,30 +128,53 @@ def build_and_solve(problem: Problem) -> Result:
         else:
             pin_conflicts.append(key)
 
-    # objective: satisfied weighted interest - lambda * uncovered
-    interest_terms = [_weight(problem, u, cid, runner_of[cid]) * v
-                      for (u, cid, sid), v in attend.items()]
-    m.maximize(sum(interest_terms) - int(round(problem.lam)) * sum(uncovered.values()))
+    # floor: a running session seats at least `min_seated` non-hosts. Pinned sessions
+    # (an admin's explicit choice) and fixed-grid scoring are exempt, so a hand edit can
+    # never make the model infeasible.
+    pinned_cids = {cid for (cid, _, _) in problem.pins}
+    if problem.fixed is None:
+        for c in problem.candidates:
+            if c.id in pinned_cids:
+                continue
+            floor = max(1, c.min_seated)
+            for s in slots:
+                if not rooms_of[(c.id, s.id)]:
+                    continue
+                guests = attending(c.id, s.id, include_runners=False)
+                m.add(sum(guests) >= floor * placed_in(c.id, s.id))
 
-    solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = MAX_TIME_S
-    solver.parameters.random_seed = 1
-    solver.parameters.num_search_workers = 1
+    # Objective, in strict priority order:
+    #   1. leave as few people as possible with nothing to attend in a slot;
+    #   2. then maximise interest points of the people seated;
+    #   3. then, on exact ties, prefer the earlier proposal.
+    # One weighted sum: each level is scaled past the full range of the levels below it,
+    # so a lower level can never outweigh a higher one.
+    n_uncovered = sum(uncovered.values())
+    interest = sum(_weight(problem, u, cid, runner_of[cid]) * v
+                   for (u, cid, _sid), v in attend.items())
+    rank = {c.id: i for i, c in enumerate(sorted(problem.candidates, key=lambda c: c.id))}
+    tie_scale = sum(rank.values()) + 1   # > the largest possible tie-break penalty
+    tie_penalty = sum(rank[cid] * v for (cid, _, _), v in place.items())
+    # each person earns at most the top weight once per slot
+    max_interest = max(WEIGHT.values()) * len(problem.present) * len(slots)
+    coverage_scale = (max_interest + 1) * tie_scale
+
+    m.maximize(interest * tie_scale - tie_penalty - coverage_scale * n_uncovered)
+    solver = _new_solver()
     status = solver.solve(m)
     ok = status in (cp_model.OPTIMAL, cp_model.FEASIBLE)
     status_name = {cp_model.OPTIMAL: "OPTIMAL",
                    cp_model.FEASIBLE: "FEASIBLE"}.get(status, "INFEASIBLE")
+    val = solver.value
 
     max_of = {c.id: c.max_attendees for c in problem.candidates}
-    n_runners_of = {c.id: sum(1 for u in problem.present if u in runner_of[c.id])
-                    for c in problem.candidates}
 
     def cell_cap(cid: int, slot_id: int, room_id: int) -> int:
-        """Effective seats for one cell: the room, lowered by the host max if set
-        (runners always fit, matching the solver's `max(max_attendees, n_runners)`)."""
+        """Effective seats for people besides the hosts: the room, lowered by the
+        host max if set."""
         cap = problem.rooms_for(slot_id)[room_id]
         if max_of.get(cid) is not None:
-            cap = min(cap, max(max_of[cid], n_runners_of[cid]))
+            cap = min(cap, max_of[cid])
         return cap
 
     placements: list[PlacementOut] = []
@@ -150,17 +182,17 @@ def build_and_solve(problem: Problem) -> Result:
     seated: set[tuple[int, int]] = set()
     if ok:
         for (cid, slot_id, room_id), v in place.items():
-            if solver.value(v) != 1:
+            if val(v) != 1:
                 continue
             demand = sum(1 for u in problem.present
                          if problem.stars.get((u, cid), 0) >= INTERESTED_STARS
-                         or u in runner_of[cid])
+                         and u not in runner_of[cid])
             cap = cell_cap(cid, slot_id, room_id)
             placements.append(PlacementOut(
                 candidate_id=cid, slot_id=slot_id, room_id=room_id,
-                projected_attendance=sum(solver.value(a) for a in attending(cid, slot_id)),
+                projected_attendance=sum(val(a) for a in attending(cid, slot_id)),
                 capacity=cap, overflow=max(0, demand - cap)))
-        seated = {(u, cid) for (u, cid, _sid), var in attend.items() if solver.value(var) == 1}
+        seated = {(u, cid) for (u, cid, _sid), var in attend.items() if val(var) == 1}
         total_interest = sum(_weight(problem, u, cid, runner_of[cid]) for (u, cid) in seated)
 
     # % of present people who got into one of their MOST preferred (max-star) sessions
@@ -190,7 +222,7 @@ def build_and_solve(problem: Problem) -> Result:
     n_present = max(1, len(problem.present))
     for s in slots:
         unc_here = sorted(u for u in problem.present
-                          if ok and solver.value(uncovered[(u, s.id)]) == 1)
+                          if ok and val(uncovered[(u, s.id)]) == 1)
         left_out[s.id] = unc_here
         coverage_pct[s.id] = round(
             100.0 * (len(problem.present) - len(unc_here)) / n_present, 1)

@@ -17,9 +17,8 @@ from app.solver import build_and_solve
 # ---- configuration helpers -------------------------------------------------
 
 def create_round(session: Session, *, event_id: int, name: str,
-                 lambda_fairness: float = 3.0, min_interest: int = 1) -> Round:
-    r = Round(event_id=event_id, name=name, lambda_fairness=lambda_fairness,
-              min_interest=min_interest, status="collecting")
+                 min_interest: int = 2) -> Round:
+    r = Round(event_id=event_id, name=name, min_interest=min_interest, status="collecting")
     session.add(r); session.flush()
     return r
 
@@ -138,19 +137,21 @@ def _all_placements_as_pins(session: Session, round_id: int) -> frozenset[tuple[
     return _as_pins(_placements(session, round_id))
 
 
-def solve_round(session: Session, round_id: int, lam: float | None = None) -> Result:
-    """Solve honoring pinned placements; does NOT write placements."""
+def solve_round(session: Session, round_id: int) -> Result:
+    """Solve honoring pinned placements; does NOT write placements. Pinned sessions
+    are kept even if they no longer meet their floor (the admin chose them)."""
     pins = _pins_from_placements(session, round_id)
-    problem = build_problem(session, round_id, lam=lam, pins=pins)
+    pinned_ids = frozenset(cid for (cid, _, _) in pins)
+    problem = build_problem(session, round_id, pins=pins, force_include=pinned_ids)
     return build_and_solve(problem)
 
 
-def evaluate_current(session: Session, round_id: int, lam: float | None = None) -> Result:
+def evaluate_current(session: Session, round_id: int) -> Result:
     """Stats for the exact current grid — the grid is FIXED to what's placed now,
     so the solver scores it as-is instead of inventing new placements."""
     fixed = _all_placements_as_pins(session, round_id)
     placed_ids = frozenset(pl.proposal_id for pl in _placements(session, round_id))
-    problem = build_problem(session, round_id, lam=lam, force_include=placed_ids)
+    problem = build_problem(session, round_id, force_include=placed_ids)
     problem = replace(problem, fixed=fixed)
     return build_and_solve(problem)
 

@@ -25,6 +25,7 @@ class Candidate:
     id: int                      # proposal id (merge-root)
     runners: frozenset[int]      # participant ids who must be present
     max_attendees: int | None = None   # host seat cap; effective cap = min(room, this)
+    min_seated: int = 1          # a running session seats at least this many non-hosts
 
 
 @dataclass(frozen=True)
@@ -33,8 +34,6 @@ class Problem:
     candidates: list[Candidate]
     present: frozenset[int]                 # engaged & present participant ids
     stars: dict[tuple[int, int], int]       # (participant_id, candidate_id) -> 1..5 (folded)
-    lam: float                              # fairness weight
-    min_interest: int                       # eligibility threshold (already applied)
     pins: frozenset[tuple[int, int, int]] = field(default_factory=frozenset)  # (cand, slot, room)
     # When set, the grid is FIXED to exactly these placements (nothing else may run).
     # Used to score the actual current grid instead of re-optimising it.

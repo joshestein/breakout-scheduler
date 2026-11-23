@@ -136,7 +136,7 @@ def _round_with_two_rooms(session):
     r1 = Room(event_id=e.id, name="Library", capacity=10)
     r2 = Room(event_id=e.id, name="Den", capacity=10)
     session.add_all([r1, r2]); session.flush()
-    rnd = RD.create_round(session, event_id=e.id, name="Round 1", lambda_fairness=10.0)
+    rnd = RD.create_round(session, event_id=e.id, name="Round 1", min_interest=1)
     ts = RD.add_timeslot(session, round_id=rnd.id, name="Slot A", position=0,
                          room_ids=[r1.id, r2.id])
     return e, [r1, r2], rnd, ts
@@ -147,8 +147,9 @@ def test_solve_apply_and_publish_validation(session):
     u1 = _p(session, e, "U1"); u2 = _p(session, e, "U2")
     a = P.propose(session, event_id=e.id, title="A", created_by=u1.id)
     b = P.propose(session, event_id=e.id, title="B", created_by=u2.id)
-    R.set_rating(session, participant_id=u1.id, proposal_id=a.id, stars=5)
-    R.set_rating(session, participant_id=u2.id, proposal_id=b.id, stars=5)
+    # each rates the other's session (a host's own rating doesn't count toward the floor)
+    R.set_rating(session, participant_id=u2.id, proposal_id=a.id, stars=5)
+    R.set_rating(session, participant_id=u1.id, proposal_id=b.id, stars=5)
     result = RD.solve_round(session, rnd.id)
     assert result.status in ("OPTIMAL", "FEASIBLE")
     RD.apply_result(session, rnd.id, result)
@@ -207,11 +208,11 @@ def test_set_timeslot_rooms_replaces_and_prunes_placements(session):
 def test_rounds_are_isolated_proposals_dont_carry(session):
     from app.solver_input import build_problem
     s = session; e = _event(s)
-    r1 = RD.create_round(s, event_id=e.id, name="R1")
-    u = _p(s, e, "U")
+    r1 = RD.create_round(s, event_id=e.id, name="R1", min_interest=1)
+    u = _p(s, e, "U"); v = _p(s, e, "V")
     a = P.propose(s, event_id=e.id, title="A", created_by=u.id)   # auto -> r1 (latest)
     assert a.round_id == r1.id
-    R.set_rating(s, participant_id=u.id, proposal_id=a.id, stars=5)
+    R.set_rating(s, participant_id=v.id, proposal_id=a.id, stars=5)
     r2 = RD.create_round(s, event_id=e.id, name="R2")
     b = P.propose(s, event_id=e.id, title="B", created_by=u.id)   # now -> r2 (latest)
     assert b.round_id == r2.id
@@ -223,17 +224,18 @@ def test_rounds_are_isolated_proposals_dont_carry(session):
 def test_set_present_drops_runner_from_solve(session):
     from app.solver_input import build_problem
     e, rooms, rnd, ts = _round_with_two_rooms(session)
-    runner = _p(session, e, "Runner")
+    runner = _p(session, e, "Runner"); guest = _p(session, e, "Guest")
     a = P.propose(session, event_id=e.id, title="A", created_by=runner.id)
+    R.set_rating(session, participant_id=guest.id, proposal_id=a.id, stars=5)
     # before marking absent: runner is present and is a runner of the candidate
     before = build_problem(session, rnd.id)
     assert runner.id in before.present
     assert any(runner.id in c.runners for c in before.candidates)
-    # mark absent -> dropped from present AND from the candidate's runner set
+    # mark absent -> dropped from present, and a session with no host left can't run
     RD.set_present(session, round_id=rnd.id, participant_id=runner.id, present=False)
     after = build_problem(session, rnd.id)
     assert runner.id not in after.present
-    assert all(runner.id not in c.runners for c in after.candidates)
+    assert all(c.id != a.id for c in after.candidates)
 
 
 # ---- backup ----------------------------------------------------------------
@@ -251,7 +253,7 @@ def test_apply_result_rejects_infeasible_and_keeps_grid(session):
     from dataclasses import replace
     e, rooms, rnd, ts = _round_with_two_rooms(session)
     u1 = _p(session, e, "U1")
-    a = P.propose(session, event_id=e.id, title="A", created_by=u1.id)
+    a = P.propose(session, event_id=e.id, title="A", created_by=u1.id, runner=False)
     R.set_rating(session, participant_id=u1.id, proposal_id=a.id, stars=5)
     good = RD.solve_round(session, rnd.id)
     RD.apply_result(session, rnd.id, good)

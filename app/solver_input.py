@@ -11,14 +11,13 @@ from app.types import Problem, Candidate, Slot, INTERESTED_STARS
 from app.merge_util import merge_root
 
 
-def build_problem(session: Session, round_id: int, lam: float | None = None,
+def build_problem(session: Session, round_id: int,
                   pins: frozenset[tuple[int, int, int]] = frozenset(),
                   force_include: frozenset[int] = frozenset()) -> Problem:
-    """`force_include` proposal ids become candidates even if below the interest
-    threshold — used when scoring the actual grid so a placed-but-now-ineligible
+    """`force_include` proposal ids become candidates even if they would not be
+    eligible — used when scoring the actual grid so a placed-but-now-ineligible
     session isn't silently dropped from the stats."""
     rnd = session.get(Round, round_id)
-    lam = rnd.lambda_fairness if lam is None else lam
 
     # proposals are scoped to this round (each round is self-contained)
     props = session.scalars(
@@ -57,10 +56,16 @@ def build_problem(session: Session, round_id: int, lam: float | None = None,
     def effective_runners(cid: int) -> frozenset[int]:
         return frozenset(u for u in runners[cid] if rp.get(u, True))
 
-    # eligibility: >= min_interest people interested (>=3) counting present runners
+    # eligibility pre-filter: enough interested (>=3) people OTHER than the hosts to
+    # meet the session's floor. The solver then enforces the floor on seats.
     def interested_count(cid: int) -> int:
         rated = {u for (u, k), s in folded.items() if k == cid and s >= INTERESTED_STARS}
-        return len(rated | effective_runners(cid))
+        return len(rated - runners[cid])
+
+    # a session whose hosts are all marked away can't run (organizer-added sessions
+    # with no host at all are fine)
+    def hosts_away(cid: int) -> bool:
+        return bool(runners[cid]) and not effective_runners(cid)
 
     slots: list[Slot] = []
     for ts in session.scalars(
@@ -71,16 +76,19 @@ def build_problem(session: Session, round_id: int, lam: float | None = None,
                      select(TimeslotRoom).where(TimeslotRoom.timeslot_id == ts.id)).all()}
         slots.append(Slot(id=ts.id, position=ts.position, rooms=rooms))
 
-    def eff_min_interest(p: Proposal) -> int:
-        return (p.min_interest_override if p.min_interest_override is not None
-                else rnd.min_interest)
+    def min_seated(p: Proposal) -> int:
+        n = (p.min_interest_override if p.min_interest_override is not None
+             else rnd.min_interest)
+        return max(1, n)
 
     candidates = [
-        Candidate(id=p.id, runners=effective_runners(p.id), max_attendees=p.max_attendees)
+        Candidate(id=p.id, runners=effective_runners(p.id), max_attendees=p.max_attendees,
+                  min_seated=min_seated(p))
         for p in active_roots
-        if interested_count(p.id) >= eff_min_interest(p) or p.id in force_include]
+        if p.id in force_include
+        or (interested_count(p.id) >= min_seated(p) and not hosts_away(p.id))]
     cand_ids = {c.id for c in candidates}
 
     stars = {(u, cid): s for (u, cid), s in folded.items() if cid in cand_ids}
     return Problem(slots=slots, candidates=candidates, present=present, stars=stars,
-                   lam=lam, min_interest=rnd.min_interest, pins=pins)
+                   pins=pins)

@@ -9,9 +9,7 @@ def test_pin_is_honored():
                     Candidate(id=200, runners=frozenset())],
         present=frozenset({1, 2}),
         stars={(1, 100): 5, (2, 200): 5},
-        lam=0.0, min_interest=1,
-        pins=frozenset({(100, 1, 11)}),
-    )
+        pins=frozenset({(100, 1, 11)}))
     r = build_and_solve(p)
     pinned = [pl for pl in r.placements if pl.candidate_id == 100]
     assert pinned and pinned[0].room_id == 11
@@ -23,8 +21,6 @@ def test_conflicting_pin_is_reported_not_crash():
         candidates=[Candidate(id=100, runners=frozenset())],
         present=frozenset({1}),
         stars={(1, 100): 5},
-        lam=0.0, min_interest=1,
-        pins=frozenset({(100, 1, 999)}),
-    )
+        pins=frozenset({(100, 1, 999)}))
     r = build_and_solve(p)
     assert (100, 1, 999) in r.pin_conflicts
