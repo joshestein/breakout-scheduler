@@ -221,6 +221,25 @@
     }
     renderQR();
     document.body.addEventListener("htmx:afterSwap", function (e) { renderQR(e.target); });
+
+    // Keep UI state across htmx swaps. The console re-renders whole on each action
+    // and the grid re-renders on its 5s poll, which would close open panels and
+    // reset scroll positions. Elements opt in with data-keep="<key>".
+    var kept = {};
+    document.body.addEventListener("htmx:beforeSwap", function () {
+      kept = {};
+      document.querySelectorAll("[data-keep]").forEach(function (el) {
+        kept[el.getAttribute("data-keep")] = { open: el.open, left: el.scrollLeft, top: el.scrollTop };
+      });
+    });
+    document.body.addEventListener("htmx:afterSwap", function () {
+      document.querySelectorAll("[data-keep]").forEach(function (el) {
+        var s = kept[el.getAttribute("data-keep")];
+        if (!s) return;
+        if (s.open) el.open = true;
+        el.scrollLeft = s.left; el.scrollTop = s.top;
+      });
+    });
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);

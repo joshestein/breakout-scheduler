@@ -2,10 +2,10 @@
 <div class="console">
   <h1 class="offscreen">Organizer console{% if event %} — {{ event.name }}{% endif %}</h1>
 
-  <aside class="rail left" id="left-rail">
+  <aside class="rail left" id="left-rail" data-keep="rail">
     <div class="rail-sec">
       <div class="eventname">{{ event.name }}</div>
-      <details class="mini share"><summary>share &amp; QR</summary>
+      <details class="mini share" data-keep="share"><summary>share &amp; QR</summary>
         <div class="tiny muted">Participant link — code built in, they just enter a name:</div>
         <div class="copyrow"><input class="sharein" id="join-url" readonly value="{{ join_url }}" onclick="this.select()">
           <button type="button" class="btn small" data-copy="#join-url">copy</button></div>
@@ -30,7 +30,7 @@
       </div>
       {% set past = all_rounds | selectattr('status', 'in', ['published', 'archived']) | list %}
       {% if past %}
-      <details class="mini past-rounds"><summary>past rounds · {{ past|length }}</summary>
+      <details class="mini past-rounds" data-keep="past-rounds"><summary>past rounds · {{ past|length }}</summary>
         {% for r in past %}<a class="chip ghost {% if rnd and r.id == rnd.id %}active{% endif %}" href="/admin?round_id={{ r.id }}">{{ r.name }}<small>{{ r.status }}</small></a>{% endfor %}
       </details>
       {% endif %}
@@ -41,7 +41,7 @@
       <form method="post" action="/admin/round-settings" hx-post="/admin/round-settings" class="settings">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="round_id" value="{{ rnd.id }}">
-        <details class="mini"><summary>how does Generate choose?</summary>
+        <details class="mini" data-keep="how"><summary>how does Generate choose?</summary>
           <p class="explain">1. Leave as few people as possible with nothing to attend in a slot.<br>
             2. Then seat people in sessions they rated highly: ★3 = 1 point, ★4 = 2, ★5 = 3. Hosts get no points for their own session.<br>
             3. On a tie, the earlier proposal wins.<br>
@@ -53,7 +53,7 @@
       </form>
     </div>
 
-    <div class="rail-sec scroll">
+    <div class="rail-sec scroll" data-keep="pool">
       <h2 class="rail-label">Pool <small>{{ pool|length }}</small></h2>
       <form method="post" action="/admin/add-session" hx-post="/admin/add-session" class="addsession">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -90,7 +90,7 @@
       </div>
       {% else %}<div class="muted tiny">No sessions yet.</div>{% endfor %}
       {% if removed %}
-      <details class="mini"><summary>removed · {{ removed|length }}</summary>
+      <details class="mini" data-keep="removed"><summary>removed · {{ removed|length }}</summary>
         {% for x in removed %}
         <div class="pool-item removed">
           <span class="pi-name">{{ x.p.title }}</span>
@@ -104,7 +104,7 @@
       {% endif %}
     </div>
 
-    <div class="rail-sec scroll">
+    <div class="rail-sec scroll" data-keep="timeslots">
       <h2 class="rail-label">Timeslots</h2>
       {% for ts in timeslots %}
       <div class="ts-block">
@@ -123,7 +123,7 @@
       {% else %}<div class="muted tiny">Add a timeslot (top of the board).</div>{% endfor %}
     </div>
 
-    <div class="rail-sec scroll">
+    <div class="rail-sec scroll" data-keep="rooms">
       <h2 class="rail-label">Rooms <small>used in every slot</small></h2>
       <ul class="roomlist">{% for r in rooms %}<li class="roomrow">
         <form method="post" action="/admin/room-edit" hx-post="/admin/room-edit" class="inline-edit">

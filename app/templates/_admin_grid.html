@@ -9,7 +9,7 @@
 </form>
 {%- endmacro %}
 <div class="work">
-  <div class="matrix-wrap">
+  <div class="matrix-wrap" data-keep="matrix">
     {% if pin_conflicts %}<div class="warn">⚠ {{ pin_conflicts|length }} pin(s) couldn't be honored.</div>{% endif %}
     {% if not grid_ok %}<div class="warn">⚠ This grid breaks a rule (for example, a host in two sessions at the same time), so the counts can't be worked out. Swap or remove a session to fix it.</div>{% endif %}
     <table class="matrix">
