@@ -182,7 +182,8 @@ def build_published_grid(session: Session, event: Event, rnd: Round,
     if ts_by_id:
         for pl in session.scalars(select(Placement).where(
                 Placement.timeslot_id.in_(list(ts_by_id)))):
-            by_ts.setdefault(pl.timeslot_id, []).append(pl)
+            if pl.proposal_id in props and props[pl.proposal_id].status == "active":
+                by_ts.setdefault(pl.timeslot_id, []).append(pl)
     grid = []
     for ts in sorted(ts_by_id.values(), key=lambda t: t.position):
         cells = []

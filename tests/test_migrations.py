@@ -86,12 +86,22 @@ def test_upgrade_folds_merged_proposals_into_their_root():
             x("INSERT INTO ratings (participant_id, proposal_id, stars, updated_at) VALUES "
               "(3, 10, 3, CURRENT_TIMESTAMP), (3, 11, 5, CURRENT_TIMESTAMP), (1, 11, 4, CURRENT_TIMESTAMP)")
             x("INSERT INTO proposal_runners (proposal_id, participant_id) VALUES (11, 2)")
+            # an old retire/merge left the merged proposal's placement behind
+            x("INSERT INTO rooms (id, event_id, name, capacity) VALUES (1, 1, 'Lib', 10)")
+            x("INSERT INTO rounds (id, event_id, name, status, lambda_fairness, min_interest, created_at) "
+              "VALUES (1, 1, 'R', 'published', 3, 1, CURRENT_TIMESTAMP)")
+            x("INSERT INTO timeslots (id, round_id, name, position, duration_minutes) "
+              "VALUES (1, 1, '14:00', 0, 45)")
+            x("INSERT INTO placements (timeslot_id, room_id, proposal_id, pinned) VALUES (1, 1, 11, 0)")
         command.upgrade(cfg, "head")
         with eng.connect() as c:
             stars = dict(c.exec_driver_sql(
                 "SELECT participant_id, stars FROM ratings WHERE proposal_id = 10").all())
             hosts = {r[0] for r in c.exec_driver_sql(
                 "SELECT participant_id FROM proposal_runners WHERE proposal_id = 10")}
+        with eng.connect() as c:
+            left = c.exec_driver_sql("SELECT count(*) FROM placements").scalar()
         assert stars == {3: 5, 1: 4}
         assert hosts == {2}
+        assert left == 0
 

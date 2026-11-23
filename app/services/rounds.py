@@ -40,19 +40,20 @@ def schedule_markdown(session: Session, round_id: int) -> str:
     rnd = session.get(Round, round_id)
     if rnd is None:
         return ""
-    titles = {p.id: p.title for p in session.scalars(
-        select(Proposal).where(Proposal.event_id == rnd.event_id))}
+    titles = {p.id: p.title for p in session.scalars(select(Proposal).where(
+        Proposal.event_id == rnd.event_id, Proposal.status == "active"))}
     rooms = {r.id: r.name for r in session.scalars(
         select(Room).where(Room.event_id == rnd.event_id))}
     blocks = []
     for ts in session.scalars(select(Timeslot).where(
             Timeslot.round_id == round_id).order_by(Timeslot.position)):
-        cells = sorted(session.scalars(select(Placement).where(Placement.timeslot_id == ts.id)),
+        cells = sorted((pl for pl in session.scalars(select(Placement).where(
+                            Placement.timeslot_id == ts.id)) if pl.proposal_id in titles),
                        key=lambda pl: rooms.get(pl.room_id, ""))
         if not cells:
             continue
         lines = [f"{ts.name} Breakouts"]
-        lines += [f"- {rooms.get(pl.room_id, '—')}: {titles.get(pl.proposal_id, '?')}"
+        lines += [f"- {rooms.get(pl.room_id, '?')}: {titles[pl.proposal_id]}"
                   for pl in cells]
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
@@ -161,7 +162,14 @@ def set_pin(session: Session, placement_id: int, pinned: bool) -> None:
 
 def remove_session(session: Session, proposal_id: int) -> None:
     """Retire a session and take it off the grid. Generate never places a retired
-    session, so the removal sticks until it is restored."""
+    session, so the removal sticks until it is restored. Raises ValueError (and
+    changes nothing) if the session is in a timeslot that has started."""
+    prop = session.get(Proposal, proposal_id)
+    started = _started(session, prop.round_id) if prop.round_id else {}
+    for pl in session.scalars(select(Placement).where(Placement.proposal_id == proposal_id)):
+        if pl.timeslot_id in started:
+            raise ValueError(f"{started[pl.timeslot_id]} has started. "
+                             "This session can't be removed from it.")
     session.execute(delete(Placement).where(Placement.proposal_id == proposal_id))
     session.get(Proposal, proposal_id).status = "retired"
     session.flush()
@@ -183,10 +191,41 @@ def pin_started_placements(session: Session, round_id: int) -> int:
     return n
 
 
+def _started(session: Session, round_id: int) -> dict[int, str]:
+    """Timeslots of the round whose clock has started: id -> name."""
+    return {t.id: t.name for t in session.scalars(select(Timeslot).where(
+        Timeslot.round_id == round_id, Timeslot.started_at.is_not(None)))}
+
+
+def _hosts(session: Session, proposal_id: int) -> set[int]:
+    return set(session.scalars(select(ProposalRunner.participant_id).where(
+        ProposalRunner.proposal_id == proposal_id)))
+
+
+def _check_hosts_free(session: Session, proposal_id: int, timeslot_id: int,
+                      ignore: list[Placement], placements: list[Placement]) -> None:
+    """Raise if a host of `proposal_id` already hosts another session in the slot."""
+    mine = _hosts(session, proposal_id)
+    if not mine:
+        return
+    for pl in placements:
+        if pl.timeslot_id != timeslot_id or any(pl is x for x in ignore):
+            continue
+        clash = mine & _hosts(session, pl.proposal_id)
+        if clash:
+            who = ", ".join(sorted(session.get(Participant, u).display_name for u in clash))
+            raise ValueError(f"{who} already hosts “{session.get(Proposal, pl.proposal_id).title}” "
+                             f"in {session.get(Timeslot, timeslot_id).name}.")
+
+
 def place(session: Session, *, timeslot_id: int, room_id: int,
           proposal_id: int) -> Placement:
-    """Hand placement (pinned). The cell's old session goes back to the pool, and
-    the session moves if it was already placed elsewhere in the round.
+    """Hand placement; the result is pinned.
+
+    - Empty cell: the session goes there (moving it if it was on the grid).
+    - Filled cell, session not on the grid: it replaces the cell's session, which
+      goes back to the pool.
+    - Filled cell, session on the grid elsewhere: the two sessions swap cells.
 
     Raises ValueError (and changes nothing) if it would change a session whose
     timeslot has started, or put a host in two sessions in one timeslot."""
@@ -196,9 +235,11 @@ def place(session: Session, *, timeslot_id: int, room_id: int,
                    if (pl.timeslot_id, pl.room_id) == (timeslot_id, room_id)), None)
     current = next((pl for pl in placements if pl.proposal_id == proposal_id), None)
     if target is not None and target is current:
-        return target   # already there
-    started = {t.id: t.name for t in session.scalars(select(Timeslot).where(
-        Timeslot.round_id == ts.round_id, Timeslot.started_at.is_not(None)))}
+        target.pinned = True
+        session.flush()
+        return target
+
+    started = _started(session, ts.round_id)
     if target is not None and target.timeslot_id in started:
         raise ValueError(f"{started[target.timeslot_id]} has started. "
                          "Its sessions can't be replaced.")
@@ -206,22 +247,22 @@ def place(session: Session, *, timeslot_id: int, room_id: int,
         raise ValueError(f"{started[current.timeslot_id]} has started. "
                          "This session can't be moved out of it.")
 
-    def hosts(pid: int) -> set[int]:
-        return set(session.scalars(select(ProposalRunner.participant_id).where(
-            ProposalRunner.proposal_id == pid)))
-    mine = hosts(proposal_id)
-    for pl in placements:
-        if pl.timeslot_id != timeslot_id or pl is target or pl is current:
-            continue
-        clash = mine & hosts(pl.proposal_id)
-        if clash:
-            who = ", ".join(sorted(session.get(Participant, u).display_name for u in clash))
-            title = session.get(Proposal, pl.proposal_id).title
-            raise ValueError(f"{who} already hosts “{title}” in {ts.name}.")
+    moving = [x for x in (target, current) if x is not None]
+    _check_hosts_free(session, proposal_id, timeslot_id, moving, placements)
+    swap = target is not None and current is not None
+    if swap:
+        _check_hosts_free(session, target.proposal_id, current.timeslot_id, moving, placements)
 
-    for pl in (target, current):
-        if pl is not None:
-            session.delete(pl)
+    if swap:
+        # swap the proposals, keep the cells (unique per timeslot + room)
+        target.proposal_id, current.proposal_id = current.proposal_id, target.proposal_id
+        target.pinned = current.pinned = True
+        session.flush()
+        return target
+    if target is not None:
+        session.delete(target)
+    if current is not None:
+        session.delete(current)
     session.flush()
     p = Placement(timeslot_id=timeslot_id, room_id=room_id, proposal_id=proposal_id,
                   pinned=True)
