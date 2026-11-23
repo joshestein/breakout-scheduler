@@ -34,18 +34,8 @@ Result: app Python goes from 3,164 to 2,743 lines. The test suite goes from 93 t
 
 ## Deploy notes
 
-1. **Back up the DB first.** The migration `f6a7b8c9d0e1` drops columns and deletes all roomless ("elsewhere") placements.
-2. **Check that the live DB has an Alembic version.** DBs made by `create_all` (any boot without `RUN_MIGRATIONS=1`) have no `alembic_version` table. Run:
-   ```bash
-   sqlite3 /data/app.db "select version_num from alembic_version"
-   ```
-   - If the table exists, set `RUN_MIGRATIONS=1` and redeploy.
-   - If the table is missing, and the `events` table has the `descriptions_enabled` column, stamp it first. Then set `RUN_MIGRATIONS=1` and redeploy:
-     ```bash
-     DB_PATH=/data/app.db python -m alembic stamp e5f6a7b8c9d0
-     ```
-3. After the deploy, set `RUN_MIGRATIONS=0` again.
-4. Remove `PREVIEW_INTERVAL_S` from any `.env`. The app no longer reads it.
+1. **Start from an empty DB.** All migrations are squashed into one initial migration (`5433f972a0e2`). A DB stamped with an older revision cannot upgrade. Delete it, or move it away.
+2. Remove `PREVIEW_INTERVAL_S` from any `.env`. The app no longer reads it.
 
 ## Problems still open
 
@@ -57,7 +47,7 @@ Ranked by effect on a 30-person retreat.
 | 2 | **Strong ratings win.** One "must" (9) is worth nine "maybe"s (1 each). A person who rates everything 5 has 9 times the effect of a careful rater. | At λ=0, 1 person with a "must" beats 9 people with a "maybe". | Normalize ratings per person, or use flatter weights (for example 1/2/3). |
 | 3 | **Minimum attendance checks ratings, not seats.** | `app/solver_input.py`: `interested_count` counts ratings of 3 or more. The solver has no seat minimum. | Add a rule: if a session runs, at least `min` people are seated. |
 | 4 | **"Publish" leaks the draft.** The published grid is a snapshot, but the "copy as markdown" text is built from the live draft. That text is on `/s/{code}` and `/published`. | `tests/test_e2e.py::test_published_view_frozen_until_republish` fails. It failed before these cuts too. | Build the Markdown from the snapshot on attendee pages. |
-| 5 | **Generate empties the grid when the solver finds no solution.** The stats then show 100% coverage. | `app/routers/admin.py` `solve` calls `apply_result` without checking the status. | Do not apply a result that is not OK. Show an error. Set `num_search_workers=8`. |
+| 5 | **Fixed:** Generate emptied the grid when the solver found no solution. `apply_result` now refuses a result that is not OK, and the admin sees an error. | `tests/test_services.py::test_apply_result_rejects_infeasible_and_keeps_grid` | Still open: set `num_search_workers=8`. |
 | 6 | **A session runs with no host if the host is marked absent.** | `app/solver_input.py` drops absent hosts but keeps the session. | Do not schedule a session if all its hosts are absent. |
 | 7 | **Coverage hides people who did not rate.** A "maybe" counts as covered. | `app/solver_input.py`: `present` includes only people who rated a session 3 or higher, or host one. | Show the non-raters. Show coverage as "N of M people". |
 | 8 | **Ties depend on proposal order.** | Probe: with identical ratings, the last proposal in the list wins. | Break ties on purpose: more people interested first, then the earlier proposal. |
