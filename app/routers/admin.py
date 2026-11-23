@@ -104,7 +104,8 @@ def _why_unplaced(x: dict, hosts_of: dict[int, set[int]], placed_at: dict[int, P
                 break
             busy_with += here
         else:
-            who = ", ".join(sorted(names.get(u, "?") for u in mine))
+            busy = mine & set().union(*(hosts_of[q] for q in busy_with))
+            who = ", ".join(sorted(names.get(u, "?") for u in busy))
             what = ", ".join(sorted({titles[q] for q in busy_with}))
             return f"host busy: {who} runs {what}"
     return f'not picked: {x["interested"]} want it'
@@ -175,18 +176,22 @@ def _context(request: Request, session: Session, event: Event, rnd: Round | None
     seated = {(c.slot_id, c.candidate_id): c for c in result.placements}
     cells = {}
     for key, pl in placements.items():
-        x = info.get(pl.proposal_id)
+        x = info[pl.proposal_id]
         c = seated.get((pl.timeslot_id, pl.proposal_id))
-        if x is None or c is None:
-            continue
-        cells[key] = {**x, "guests": c.seated_guests, "capacity": c.capacity, "overflow": c.overflow,
-                      "below_floor": c.seated_guests < x["floor"]}
+        cells[key] = {**x, "stats": c is not None,
+                      "guests": c.seated_guests if c else 0,
+                      "capacity": c.capacity if c else 0,
+                      "overflow": c.overflow if c else 0,
+                      "below_floor": bool(c) and c.seated_guests < x["floor"]}
 
-    # people, not points
+    # people, not points. Only sessions still in the round count: someone whose only
+    # wanted session was removed shows as "haven't rated" or "want nothing", not vanish.
+    active_ids = {x["p"].id for x in active}
     admin_ids = {u.id for u in people if u.is_admin}
-    host_ids = set().union(*hosts_of.values()) if hosts_of else set()
-    rated_ids = {r.participant_id for r in ratings}
-    wants_ids = {r.participant_id for r in ratings if r.stars >= INTERESTED_STARS}
+    host_ids = set().union(*(hosts_of[q] for q in active_ids))
+    current = [r for r in ratings if r.proposal_id in active_ids]
+    rated_ids = {r.participant_id for r in current}
+    wants_ids = {r.participant_id for r in current if r.stars >= INTERESTED_STARS}
     no_interest_ids = rated_ids - wants_ids - host_ids
     not_rated = sorted(u.display_name for u in people
                        if u.id not in admin_ids and u.id not in rated_ids and u.id not in host_ids)
@@ -202,6 +207,9 @@ def _context(request: Request, session: Session, event: Event, rnd: Round | None
         })
 
     ctx.update({
+        # the scorer finds no solution when the grid breaks a hard rule (e.g. a host in
+        # two sessions at once); then there are no honest counts to show
+        "grid_ok": result.status in ("OPTIMAL", "FEASIBLE"),
         "timeslots": timeslots, "placements": placements, "cells": cells,
         "pool": pool, "unplaced": unplaced, "removed": removed, "placed_at": placed_at,
         "slots": slots, "n_people": result.n_present + len(no_interest_ids),
@@ -427,7 +435,10 @@ def force_place(request: Request, round_id: int = Form(...), timeslot_id: int = 
     _same_round(session, timeslot_id, proposal_id)
     if prop.status != "active":
         raise HTTPException(status_code=400, detail="This session was removed. Restore it first.")
-    RD.place(session, timeslot_id=timeslot_id, room_id=room_id, proposal_id=proposal_id)
+    try:
+        RD.place(session, timeslot_id=timeslot_id, room_id=room_id, proposal_id=proposal_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     return _respond(request, session, event, round_id)
 
 

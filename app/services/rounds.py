@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select, delete
 from sqlalchemy.orm import Session
 
-from app.models import Round, Timeslot, Placement, Room, Proposal
+from app.models import Round, Timeslot, Placement, Room, Proposal, ProposalRunner, Participant
 from app.types import Result
 from app.solver_input import build_problem
 from app.solver import build_and_solve
@@ -186,10 +186,41 @@ def pin_started_placements(session: Session, round_id: int) -> int:
 def place(session: Session, *, timeslot_id: int, room_id: int,
           proposal_id: int) -> Placement:
     """Hand placement (pinned). The cell's old session goes back to the pool, and
-    the session moves if it was already placed elsewhere in the round."""
-    round_id = session.get(Timeslot, timeslot_id).round_id
-    for pl in _placements(session, round_id):
-        if pl.proposal_id == proposal_id or (pl.timeslot_id, pl.room_id) == (timeslot_id, room_id):
+    the session moves if it was already placed elsewhere in the round.
+
+    Raises ValueError (and changes nothing) if it would change a session whose
+    timeslot has started, or put a host in two sessions in one timeslot."""
+    ts = session.get(Timeslot, timeslot_id)
+    placements = _placements(session, ts.round_id)
+    target = next((pl for pl in placements
+                   if (pl.timeslot_id, pl.room_id) == (timeslot_id, room_id)), None)
+    current = next((pl for pl in placements if pl.proposal_id == proposal_id), None)
+    if target is not None and target is current:
+        return target   # already there
+    started = {t.id: t.name for t in session.scalars(select(Timeslot).where(
+        Timeslot.round_id == ts.round_id, Timeslot.started_at.is_not(None)))}
+    if target is not None and target.timeslot_id in started:
+        raise ValueError(f"{started[target.timeslot_id]} has started. "
+                         "Its sessions can't be replaced.")
+    if current is not None and current.timeslot_id in started:
+        raise ValueError(f"{started[current.timeslot_id]} has started. "
+                         "This session can't be moved out of it.")
+
+    def hosts(pid: int) -> set[int]:
+        return set(session.scalars(select(ProposalRunner.participant_id).where(
+            ProposalRunner.proposal_id == pid)))
+    mine = hosts(proposal_id)
+    for pl in placements:
+        if pl.timeslot_id != timeslot_id or pl is target or pl is current:
+            continue
+        clash = mine & hosts(pl.proposal_id)
+        if clash:
+            who = ", ".join(sorted(session.get(Participant, u).display_name for u in clash))
+            title = session.get(Proposal, pl.proposal_id).title
+            raise ValueError(f"{who} already hosts “{title}” in {ts.name}.")
+
+    for pl in (target, current):
+        if pl is not None:
             session.delete(pl)
     session.flush()
     p = Placement(timeslot_id=timeslot_id, room_id=room_id, proposal_id=proposal_id,

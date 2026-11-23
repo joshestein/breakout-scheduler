@@ -640,3 +640,75 @@ def test_console_badge_uses_clamped_floor(app):
     html = admin.get(f"/admin?round_id={rid}").text
     assert "Tiny" in html and "1 want it, needs 1" not in html and "needs 2" not in html
     assert "not picked: 1 want it" in html
+
+
+def _two_room_round(app, csrf, admin, slots=("14:00",)):
+    _post(admin, "/events", csrf, {"name": "R", "participant_code": "p", "admin_code": "a",
+                                   "admin_name": "Org", "rooms": "Lib, 10\nDen, 10"})
+    _post(admin, "/admin/round", csrf, {"name": "R1", "min_interest": 1})
+    sf = app.state.session_factory
+    rid = app_round_id(sf)
+    for name in slots:
+        _post(admin, "/admin/timeslot", csrf, {"round_id": rid, "name": name, "duration_minutes": "45"})
+    with sf() as s:
+        rooms = [r.id for r in s.scalars(select(Room).order_by(Room.id))]
+        ts = [t.id for t in s.scalars(select(Timeslot).order_by(Timeslot.position))]
+    return sf, rid, rooms, ts
+
+
+def test_place_refuses_host_clash_and_started_slot(app):
+    csrf = _csrf(TestClient(app)); admin = TestClient(app)
+    sf, rid, rooms, ts = _two_room_round(app, csrf, admin, slots=("14:00", "15:00"))
+    ann = TestClient(app); _post(ann, "/enter", csrf, {"code": "p", "name": "Ann"})
+    _post(ann, "/propose", csrf, {"title": "A1"}); _post(ann, "/propose", csrf, {"title": "A2"})
+    _post(admin, "/admin/add-session", csrf, {"round_id": rid, "title": "Free"})
+    with sf() as s:
+        ids = {p.title: p.id for p in s.scalars(select(Proposal))}
+
+    def place(t, room, title):
+        return admin.post("/admin/force-place", headers={"X-CSRFToken": csrf},
+                          data={"round_id": rid, "timeslot_id": t, "room_id": room,
+                                "proposal_id": ids[title]}, follow_redirects=False)
+    assert place(ts[0], rooms[0], "A1").status_code in (200, 303)
+    r = place(ts[0], rooms[1], "A2")                     # Ann can't host both at 14:00
+    assert r.status_code == 409 and "Ann already hosts" in r.json()["detail"]
+    assert place(ts[1], rooms[1], "A2").status_code in (200, 303)   # 15:00 is fine
+    # once 14:00 has started, its sessions can't be replaced or moved out
+    _post(admin, "/admin/publish", csrf, {"round_id": rid})
+    _post(admin, "/admin/timeslot-start", csrf, {"round_id": rid, "timeslot_id": ts[0]})
+    assert place(ts[0], rooms[0], "Free").status_code == 409
+    assert place(ts[1], rooms[0], "A1").status_code == 409
+    with sf() as s:
+        assert {(p.timeslot_id, p.proposal_id) for p in s.scalars(select(Placement))} == {
+            (ts[0], ids["A1"]), (ts[1], ids["A2"])}
+
+
+def test_broken_grid_shows_banner_and_real_titles(app):
+    # a grid the rules forbid (a host in two sessions at once, written straight to the
+    # DB) must not show made-up counts or "?" titles
+    csrf = _csrf(TestClient(app)); admin = TestClient(app)
+    sf, rid, rooms, ts = _two_room_round(app, csrf, admin)
+    ann = TestClient(app); _post(ann, "/enter", csrf, {"code": "p", "name": "Ann"})
+    _post(ann, "/propose", csrf, {"title": "A1"}); _post(ann, "/propose", csrf, {"title": "A2"})
+    with sf() as s:
+        for room, p in zip(rooms, s.scalars(select(Proposal).order_by(Proposal.id))):
+            s.add(Placement(timeslot_id=ts[0], room_id=room, proposal_id=p.id, pinned=True))
+        s.commit()
+    html = admin.get("/admin?round_id=%d" % rid).text
+    assert "breaks a rule" in html and "A1" in html and "A2" in html
+    assert "have a session" not in html
+
+
+def test_removed_session_fans_still_counted(app):
+    # Kim wanted only Gone; after Gone is removed Kim must still show up somewhere
+    csrf = _csrf(TestClient(app)); admin = TestClient(app)
+    sf, rid, rooms, ts = _two_room_round(app, csrf, admin)
+    _post(admin, "/admin/add-session", csrf, {"round_id": rid, "title": "Gone"})
+    with sf() as s:
+        gone = s.scalar(select(Proposal).where(Proposal.title == "Gone")).id
+    kim = TestClient(app); _post(kim, "/enter", csrf, {"code": "p", "name": "Kim"})
+    _post(kim, "/rate", csrf, {"proposal_id": gone, "stars": 5})
+    _post(admin, "/admin/remove", csrf, {"round_id": rid, "proposal_id": gone})
+    html = admin.get("/admin?round_id=%d" % rid).text
+    assert "haven't rated · 1" in html and "Kim" in html
+

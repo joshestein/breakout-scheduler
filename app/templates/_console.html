@@ -65,7 +65,8 @@
       <div class="pool-item">
         <div class="pi-title"><span class="pi-name">{{ x.p.title }}</span>
           {% if x.p.max_attendees %}<span class="badge2" title="the host caps it at {{ x.p.max_attendees }} people besides the hosts">cap {{ x.p.max_attendees }}</span>{% endif %}
-          {% if x.floor != rnd.min_interest %}<span class="badge2" title="the host set their own minimum">min {{ x.floor }}</span>{% endif %}
+          {% if x.p.min_interest_override is not none %}<span class="badge2" title="the host set their own minimum{% if x.floor != x.p.min_interest_override %}, lowered to fit the host's cap or the biggest room{% endif %}">min {{ x.floor }}</span>
+          {% elif x.floor != rnd.min_interest %}<span class="badge2" title="the round minimum ({{ rnd.min_interest }}) is lowered to fit the host's cap or the biggest room">min {{ x.floor }}</span>{% endif %}
         </div>
         <div class="pi-agg">
           <span class="pill" title="people besides the hosts who rated it ★3 or more">♥ {{ x.interested }}</span>

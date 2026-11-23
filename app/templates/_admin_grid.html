@@ -11,6 +11,7 @@
 <div class="work">
   <div class="matrix-wrap">
     {% if pin_conflicts %}<div class="warn">⚠ {{ pin_conflicts|length }} pin(s) couldn't be honored.</div>{% endif %}
+    {% if not grid_ok %}<div class="warn">⚠ This grid breaks a rule (for example, a host in two sessions at the same time), so the counts can't be worked out. Swap or remove a session to fix it.</div>{% endif %}
     <table class="matrix">
       <thead><tr><th class="corner">slot ▸ room</th>{% for r in rooms %}<th>{{ r.name }}<small>{{ r.capacity }} seats</small></th>{% endfor %}</tr></thead>
       <tbody>
@@ -19,7 +20,8 @@
         <tr>
           <th class="rowhead">
             <div>{{ ts.name }}</div>
-            {% if n_people %}<div class="cov {% if s.covered < n_people %}low{% endif %}">{{ s.covered }} of {{ n_people }} have a session</div>
+            {% if not grid_ok %}<div class="cov low">counts unavailable</div>
+            {% elif n_people %}<div class="cov {% if s.covered < n_people %}low{% endif %}">{{ s.covered }} of {{ n_people }} have a session</div>
             {% else %}<div class="cov muted">no ratings yet</div>{% endif %}
             {% if rnd.status == 'published' %}
               {% if ts.started_at %}<span class="muted tiny">started</span>
@@ -32,19 +34,19 @@
             {% set pl = placements.get((ts.id, r.id)) %}
             {% if pl %}
               {% set c = cells.get((ts.id, r.id)) %}
-              <td class="cell filled {% if c and c.overflow > 0 %}over{% endif %} {% if c and c.below_floor %}below-floor{% endif %}">
+              <td class="cell filled {% if c.overflow > 0 %}over{% endif %} {% if c.below_floor %}below-floor{% endif %}">
                 <div class="card">
-                  <div class="ct">{{ c.p.title if c else '?' }}{% if pl.pinned %} <span class="pin-tag" title="pinned: Generate keeps it here">📌</span>{% endif %}</div>
-                  {% if c %}
+                  <div class="ct">{{ c.p.title }}{% if pl.pinned %} <span class="pin-tag" title="pinned: Generate keeps it here">📌</span>{% endif %}</div>
                   <div class="meta">{{ ('host: ' ~ (c.hosts | join(', '))) if c.hosts else 'no host' }}</div>
+                  {% if c.stats %}
                   <div class="bar"><i style="width:{{ [100, (100 * c.guests / c.capacity) if c.capacity else 0] | min }}%"></i></div>
                   <div class="meta">{{ c.guests }} seated / {{ c.capacity }} seats{% if c.overflow > 0 %} · <span class="ov">{{ c.overflow }} more wanted in</span>{% endif %}</div>
+                  {% endif %}
                   <div class="meta" title="people besides the hosts who rated it ★3 or more">{{ c.interested }} want it{% if c.interested %}: ★5×{{ c.stars[5] }} ★4×{{ c.stars[4] }} ★3×{{ c.stars[3] }}{% endif %}</div>
                   {% if c.below_floor %}<div class="meta ov" title="pinned sessions skip the minimum">below min: {{ c.guests }} of {{ c.floor }}</div>{% endif %}
-                  {% endif %}
                   <div class="card-actions">
                     <form method="post" action="/admin/pin" hx-post="/admin/pin" hx-target="#console-main" hx-swap="outerHTML"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><input type="hidden" name="placement_id" value="{{ pl.id }}"><input type="hidden" name="pinned" value="{{ 0 if pl.pinned else 1 }}"><button class="lnk {% if pl.pinned %}pinned{% endif %}">{{ 'unpin' if pl.pinned else 'pin' }}</button></form>
-                    <form method="post" action="/admin/remove" hx-post="/admin/remove" hx-target="#console-main" hx-swap="outerHTML" hx-confirm="Remove “{{ c.p.title if c else '' }}” from this round? Generate won't place it again until you restore it from the pool."><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><input type="hidden" name="proposal_id" value="{{ pl.proposal_id }}"><button class="lnk">remove</button></form>
+                    <form method="post" action="/admin/remove" hx-post="/admin/remove" hx-target="#console-main" hx-swap="outerHTML" hx-confirm="Remove “{{ c.p.title }}” from this round? Generate won't place it again until you restore it from the pool."><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><input type="hidden" name="proposal_id" value="{{ pl.proposal_id }}"><button class="lnk">remove</button></form>
                     {{ place_select(ts, r, pl.proposal_id) }}
                   </div>
                 </div>
@@ -60,6 +62,9 @@
   </div>
 
   <aside class="consequences">
+    {% if not grid_ok %}
+    <div class="cons-slot"><div class="leftout">Counts are hidden until the grid follows the rules again.</div></div>
+    {% else %}
     {% if n_people %}
     <div class="big-num">{{ top_pick }} of {{ n_people }}<small>got one of their top-rated sessions</small></div>
     {% endif %}
@@ -73,6 +78,7 @@
       {% else %}<div class="ok">everyone who rated has a session ✓</div>{% endif %}
     </div>
     {% endfor %}
+    {% endif %}
     {% if no_interest %}
     <div class="cons-slot">
       <div class="cs-head">want nothing</div>
