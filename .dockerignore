@@ -11,3 +11,5 @@ data
 /tmp
 docs
 tests
+.env
+.github
