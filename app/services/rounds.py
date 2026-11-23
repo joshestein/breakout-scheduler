@@ -157,7 +157,11 @@ def evaluate_current(session: Session, round_id: int, lam: float | None = None) 
 
 def apply_result(session: Session, round_id: int, result: Result, *,
                  keep_pinned: bool = True) -> None:
-    """Write draft placements from a solver Result, preserving pinned ones."""
+    """Write draft placements from a solver Result, preserving pinned ones.
+
+    Raises ValueError on a non-solution so an infeasible solve never wipes the grid."""
+    if result.status not in ("OPTIMAL", "FEASIBLE"):
+        raise ValueError("No schedule fits the pins and rules. Grid not changed.")
     existing = _placements(session, round_id)
     for p in existing:
         if not (keep_pinned and p.pinned):
