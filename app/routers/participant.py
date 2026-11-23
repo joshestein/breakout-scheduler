@@ -191,7 +191,7 @@ def build_published_grid(session: Session, event: Event, rnd: Round,
             interested = session.scalar(select(func.count(Rating.id)).where(
                 Rating.proposal_id == pid, Rating.stars >= INTERESTED_STARS)) or 0
             room = rooms.get(rid)
-            label = room.name if room else "—"
+            label = room.name if room else "?"
             cells.append({"key": pid, "title": props[pid].title if pid in props else "?",
                           "room_id": rid,
                           "room_label": label, "my_stars": my_stars.get(pid, 0),

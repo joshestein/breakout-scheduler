@@ -190,7 +190,7 @@ def build_and_solve(problem: Problem) -> Result:
             cap = cell_cap(cid, slot_id, room_id)
             placements.append(PlacementOut(
                 candidate_id=cid, slot_id=slot_id, room_id=room_id,
-                projected_attendance=sum(val(a) for a in attending(cid, slot_id)),
+                seated_guests=sum(val(a) for a in attending(cid, slot_id, include_runners=False)),
                 capacity=cap, overflow=max(0, demand - cap)))
         seated = {(u, cid) for (u, cid, _sid), var in attend.items() if val(var) == 1}
         total_interest = sum(_weight(problem, u, cid, runner_of[cid]) for (u, cid) in seated)

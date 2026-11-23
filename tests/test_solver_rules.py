@@ -69,7 +69,7 @@ def test_floor_counts_seated_guests_not_ratings():
     assert 100 not in _placed(r) or 200 not in _placed(r)
     for pl in r.placements:
         if pl.candidate_id == 100:
-            assert pl.projected_attendance >= 2
+            assert pl.seated_guests >= 2
 
 
 def test_pin_skips_floor():
@@ -120,7 +120,7 @@ def test_invariants_on_random_retreats():
         assert len(_placed(r)) == len(r.placements)          # each session runs once
         for pl in r.placements:
             c = by_id[pl.candidate_id]
-            guests = pl.projected_attendance - len(c.runners)
+            guests = pl.seated_guests
             assert guests >= c.min_seated
             assert guests <= pl.capacity
             for h in c.runners:

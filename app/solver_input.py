@@ -9,10 +9,14 @@ from app.models import Proposal, Rating, ProposalRunner, Round, Timeslot, Room
 from app.types import Problem, Candidate, Slot, INTERESTED_STARS
 
 
-def min_seated(p: Proposal, rnd: Round) -> int:
+def min_seated(p: Proposal, rnd: Round, biggest_room: int) -> int:
     """People besides the hosts who must be seated for `p` to run: the proposer's own
-    number if set, else the round default. Never below 1."""
+    number if set, else the round default. Lowered to the host's cap and to the
+    biggest room, so a small workshop is never silently impossible. Never below 1."""
     n = p.min_interest_override if p.min_interest_override is not None else rnd.min_interest
+    n = min(n, biggest_room)
+    if p.max_attendees is not None:
+        n = min(n, p.max_attendees)
     return max(1, n)
 
 
@@ -20,7 +24,7 @@ def build_problem(session: Session, round_id: int,
                   pins: frozenset[tuple[int, int, int]] = frozenset(),
                   force_include: frozenset[int] = frozenset()) -> Problem:
     """`force_include` proposal ids become candidates even if they would not be
-    eligible — used when scoring the actual grid so a placed-but-now-ineligible
+    eligible. Used when scoring the actual grid so a placed-but-now-ineligible
     session isn't silently dropped from the stats."""
     rnd = session.get(Round, round_id)
 
@@ -59,11 +63,12 @@ def build_problem(session: Session, round_id: int,
              for ts in session.scalars(select(Timeslot).where(
                  Timeslot.round_id == round_id).order_by(Timeslot.position))]
 
+    biggest = max(rooms.values(), default=1)
     candidates = [
         Candidate(id=p.id, runners=frozenset(runners[p.id]), max_attendees=p.max_attendees,
-                  min_seated=min_seated(p, rnd))
+                  min_seated=min_seated(p, rnd, biggest))
         for p in active
-        if p.id in force_include or interested_count(p.id) >= min_seated(p, rnd)]
+        if p.id in force_include or interested_count(p.id) >= min_seated(p, rnd, biggest)]
     cand_ids = {c.id for c in candidates}
 
     return Problem(slots=slots, candidates=candidates, present=frozenset(present),

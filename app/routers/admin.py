@@ -69,7 +69,7 @@ def _eval_fingerprint(session: Session, rnd: Round) -> tuple:
 
 
 def _session_info(p: Proposal, rnd: Round, ratings: list[Rating], hosts: set[int],
-                  names: dict[int, str]) -> dict:
+                  names: dict[int, str], biggest_room: int) -> dict:
     """Counts only (no per-person stars): who hosts, how many people besides the
     hosts want it, and how many gave each star level."""
     mine = [r for r in ratings if r.proposal_id == p.id]
@@ -83,7 +83,7 @@ def _session_info(p: Proposal, rnd: Round, ratings: list[Rating], hosts: set[int
         "stars": stars,
         "n_raters": len(mine),
         "avg": round(sum(r.stars for r in mine) / len(mine), 1) if mine else 0,
-        "floor": min_seated(p, rnd),
+        "floor": min_seated(p, rnd, biggest_room),
     }
 
 
@@ -157,7 +157,8 @@ def _context(request: Request, session: Session, event: Event, rnd: Round | None
         result = RD.evaluate_current(session, rnd.id)
         cache[rnd.id] = (fp, result)
 
-    info = {p.id: _session_info(p, rnd, ratings, hosts_of[p.id], names) for p in props}
+    biggest = max((r.capacity for r in rooms), default=1)
+    info = {p.id: _session_info(p, rnd, ratings, hosts_of[p.id], names, biggest) for p in props}
     active = [info[p.id] for p in props if p.status == "active"]
     room_name = {r.id: r.name for r in rooms}
     ts_name = {ts.id: ts.name for ts in timeslots}
@@ -177,9 +178,8 @@ def _context(request: Request, session: Session, event: Event, rnd: Round | None
         c = seated.get((pl.timeslot_id, pl.proposal_id))
         if x is None or c is None:
             continue
-        guests = c.projected_attendance - len(hosts_of[pl.proposal_id])
-        cells[key] = {**x, "guests": guests, "capacity": c.capacity, "overflow": c.overflow,
-                      "below_floor": guests < x["floor"]}
+        cells[key] = {**x, "guests": c.seated_guests, "capacity": c.capacity, "overflow": c.overflow,
+                      "below_floor": c.seated_guests < x["floor"]}
 
     # people, not points
     admin_ids = {u.id for u in people if u.is_admin}
