@@ -8,8 +8,8 @@ from app.models import Proposal, ProposalRunner, Round
 
 def current_round_id(session: Session, event_id: int) -> int | None:
     """The round proposals are currently collected into: latest round still OPEN
-    for input (draft/collecting). Never a published round — proposing into a
-    published round would mutate an already-snapshotted pool."""
+    for input (draft/collecting). Never a published round: a new proposal would
+    not be on its grid."""
     r = session.scalar(select(Round).where(
         Round.event_id == event_id, Round.status.in_(("draft", "collecting"))
     ).order_by(Round.id.desc()))
@@ -49,12 +49,6 @@ def edit_title(session: Session, proposal_id: int, title: str) -> None:
     if not t:
         raise ValueError("title required")
     session.get(Proposal, proposal_id).title = t[:300]
-    session.flush()
-
-
-def retire(session: Session, proposal_id: int) -> None:
-    p = session.get(Proposal, proposal_id)
-    p.status = "retired"
     session.flush()
 
 

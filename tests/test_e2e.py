@@ -474,7 +474,7 @@ def test_cross_round_placement_rejected_same_event(app):
     assert r.status_code == 400
 
 
-def test_place_by_hand_moves_swaps_and_remove_sticks(app):
+def test_place_by_hand_moves_replaces_and_remove_sticks(app):
     csrf = _csrf(TestClient(app)); admin = TestClient(app)
     _post(admin, "/events", csrf, {"name": "R", "participant_code": "p", "admin_code": "a",
                                    "admin_name": "Org", "rooms": "Lib, 10\nHall, 10"})
@@ -512,13 +512,14 @@ def test_place_by_hand_moves_swaps_and_remove_sticks(app):
                data={"round_id": rid, "timeslot_id": ts, "room_id": room_ids[1],
                      "proposal_id": other}, follow_redirects=False)
     assert cells() == [(int(room_ids[1]), other, True)]
-    # a placed session onto another filled cell swaps the two
+    # a placed session onto another filled cell moves there; the old one goes to the pool
     place(room_ids[0])
     assert cells() == [(int(room_ids[0]), pid, True), (int(room_ids[1]), other, True)]
     admin.post("/admin/force-place", headers={"X-CSRFToken": csrf},
                data={"round_id": rid, "timeslot_id": ts, "room_id": room_ids[0],
                      "proposal_id": other}, follow_redirects=False)
-    assert cells() == [(int(room_ids[0]), other, True), (int(room_ids[1]), pid, True)]
+    assert cells() == [(int(room_ids[0]), other, True)]
+    place(room_ids[1])
     # remove sticks: the session leaves the grid, can't be placed, and comes back on restore
     _post(admin, "/admin/remove", csrf, {"round_id": rid, "proposal_id": other})
     assert cells() == [(int(room_ids[1]), pid, True)]
@@ -667,12 +668,11 @@ def _two_room_round(app, csrf, admin, slots=("14:00",)):
     return sf, rid, rooms, ts
 
 
-def test_place_refuses_host_clash_and_started_slot(app):
+def test_place_refuses_host_clash(app):
     csrf = _csrf(TestClient(app)); admin = TestClient(app)
     sf, rid, rooms, ts = _two_room_round(app, csrf, admin, slots=("14:00", "15:00"))
     ann = TestClient(app); _post(ann, "/enter", csrf, {"code": "p", "name": "Ann"})
     _post(ann, "/propose", csrf, {"title": "A1"}); _post(ann, "/propose", csrf, {"title": "A2"})
-    _post(admin, "/admin/add-session", csrf, {"round_id": rid, "title": "Free"})
     with sf() as s:
         ids = {p.title: p.id for p in s.scalars(select(Proposal))}
 
@@ -684,14 +684,6 @@ def test_place_refuses_host_clash_and_started_slot(app):
     r = place(ts[0], rooms[1], "A2")                     # Ann can't host both at 14:00
     assert r.status_code == 409 and "Ann already hosts" in r.json()["detail"]
     assert place(ts[1], rooms[1], "A2").status_code in (200, 303)   # 15:00 is fine
-    # once 14:00 has started, its sessions can't be replaced or moved out
-    _post(admin, "/admin/publish", csrf, {"round_id": rid})
-    _post(admin, "/admin/timeslot-start", csrf, {"round_id": rid, "timeslot_id": ts[0]})
-    assert place(ts[0], rooms[0], "Free").status_code == 409
-    assert place(ts[1], rooms[0], "A1").status_code == 409
-    r = admin.post("/admin/remove", headers={"X-CSRFToken": csrf},
-                   data={"round_id": rid, "proposal_id": ids["A1"]}, follow_redirects=False)
-    assert r.status_code == 409 and "has started" in r.json()["detail"]
     # placing a session in the cell it already has just pins it
     with sf() as s:
         a2 = s.scalar(select(Placement).where(Placement.proposal_id == ids["A2"]))

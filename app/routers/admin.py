@@ -459,10 +459,7 @@ def remove(request: Request, round_id: int = Form(...), proposal_id: int = Form(
     """Take a session out of the round: off the grid, and Generate won't use it."""
     event = _event_of(session, token)
     owned_proposal(session, proposal_id, event.id)
-    try:
-        RD.remove_session(session, proposal_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+    RD.remove_session(session, proposal_id)
     return _respond(request, session, event, round_id)
 
 

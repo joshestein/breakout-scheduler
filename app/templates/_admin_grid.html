@@ -3,8 +3,8 @@
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}">
   <input type="hidden" name="timeslot_id" value="{{ ts.id }}"><input type="hidden" name="room_id" value="{{ r.id }}">
   <select name="proposal_id" onchange="this.form.requestSubmit()" aria-label="place a session in {{ ts.name }}, {{ r.name }}">
-    <option value="">{{ '⇄ replace or swap…' if current else '＋ place…' }}</option>
-    {% for x in pool if x.p.id != current %}<option value="{{ x.p.id }}">{{ x.p.title }}{% if x.where %} ({{ 'swap with' if current else 'move from' }} {{ x.where }}){% endif %}</option>{% endfor %}
+    <option value="">{{ '⇄ replace…' if current else '＋ place…' }}</option>
+    {% for x in pool if x.p.id != current %}<option value="{{ x.p.id }}">{{ x.p.title }}{% if x.where %} (move from {{ x.where }}){% endif %}</option>{% endfor %}
   </select>
 </form>
 {%- endmacro %}
