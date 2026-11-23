@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.models import (Event, Participant, Proposal, ProposalRunner, Rating, Room,
                         Round, Timeslot, Placement)
-from app.types import INTERESTED_STARS
+from app.types import INTERESTED_STARS, Result
 from app.solver_input import Eligibility, eligibility
 from app.deps import get_session, require_admin, require_csrf, load_participant
 from app.render import render
@@ -68,6 +68,28 @@ def _eval_fingerprint(session: Session, rnd: Round) -> tuple:
     return (rnd.min_interest, ts_fp, rooms_fp, props_fp, pls_fp, ratings_fp, runners_fp)
 
 
+def _evaluate(request: Request, session: Session, rnd: Round) -> Result:
+    """`evaluate_current`, cached by a content fingerprint so the 5s poll doesn't
+    re-run CP-SAT when nothing relevant changed."""
+    fp = _eval_fingerprint(session, rnd)
+    cache = request.app.state.eval_cache
+    hit = cache.get(rnd.id)
+    if hit and hit[0] == fp:
+        return hit[1]
+    result = RD.evaluate_current(session, rnd.id)
+    cache[rnd.id] = (fp, result)
+    return result
+
+
+def _sync_assignments(request: Request, session: Session, event: Event) -> None:
+    """Save the seating of every published round, so attendees see where the solver
+    put them. Call after each change to a published grid. It uses the same cached
+    result as the console, so the console's counts match what attendees see."""
+    for rnd in session.scalars(select(Round).where(
+            Round.event_id == event.id, Round.status == "published")):
+        RD.save_assignments(session, rnd.id, _evaluate(request, session, rnd))
+
+
 def _session_info(p: Proposal, el: Eligibility, ratings: list[Rating], hosts: set[int],
                   names: dict[int, str]) -> dict:
     """Counts only (no per-person stars): who hosts, how many people besides the
@@ -85,6 +107,7 @@ def _session_info(p: Proposal, el: Eligibility, ratings: list[Rating], hosts: se
         "n_raters": len(mine),
         "avg": round(sum(r.stars for r in mine) / len(mine), 1) if mine else 0,
         "floor": el.floor,
+        "eligible": el.eligible,
     }
 
 
@@ -92,6 +115,8 @@ def _why_unplaced(x: dict, hosts_of: dict[int, set[int]], placed_at: dict[int, P
                   timeslots: list[Timeslot], titles: dict[int, str],
                   names: dict[int, str]) -> str:
     """One short, always-true reason an active session is not on the grid."""
+    if not x["hosts"]:
+        return "no host: nobody runs it"
     if x["interested"] < x["floor"]:
         return f'{x["interested"]} want it, needs {x["floor"]}'
     mine = hosts_of.get(x["p"].id, set())
@@ -148,16 +173,8 @@ def _context(request: Request, session: Session, event: Event, rnd: Round | None
             placements[(pl.timeslot_id, pl.room_id)] = pl
             placed_at[pl.proposal_id] = pl
 
-    # stats for the EXACT current grid, cached by a content fingerprint so the 5s poll
-    # doesn't re-run CP-SAT when nothing relevant changed.
-    fp = _eval_fingerprint(session, rnd)
-    cache = request.app.state.eval_cache
-    hit = cache.get(rnd.id)
-    if hit and hit[0] == fp:
-        result = hit[1]
-    else:
-        result = RD.evaluate_current(session, rnd.id)
-        cache[rnd.id] = (fp, result)
+    # stats for the EXACT current grid
+    result = _evaluate(request, session, rnd)
 
     elig = eligibility(session, rnd.id)
     info = {p.id: _session_info(p, elig[p.id], ratings, hosts_of[p.id], names) for p in props}
@@ -216,7 +233,7 @@ def _context(request: Request, session: Session, event: Event, rnd: Round | None
         "top_pick": round(result.top_choice_pct * result.n_present / 100),
         "no_interest": sorted(names.get(u, "?") for u in no_interest_ids),
         "not_rated": not_rated, "pin_conflicts": result.pin_conflicts,
-        "n_eligible": sum(1 for x in pool if x["interested"] >= x["floor"]),
+        "n_eligible": sum(1 for x in pool if x["eligible"]),
         "n_rated": len(rated_ids),
     })
     return ctx
@@ -291,6 +308,7 @@ def room_edit(request: Request, room_id: int = Form(...), name: str = Form(...),
     event = _event_of(session, token)
     owned_room(session, room_id, event.id)
     RD.edit_room(session, room_id, name=name, capacity=capacity)
+    _sync_assignments(request, session, event)
     return _respond_or_console(request, session, event, round_id)
 
 
@@ -301,6 +319,7 @@ def room_delete(request: Request, room_id: int = Form(...), round_id: int = Form
     event = _event_of(session, token)
     owned_room(session, room_id, event.id)
     RD.delete_room(session, room_id)
+    _sync_assignments(request, session, event)
     return _respond_or_console(request, session, event, round_id)
 
 
@@ -324,6 +343,7 @@ def timeslot_delete(request: Request, round_id: int = Form(...), timeslot_id: in
     owned_round(session, round_id, event.id)
     owned_timeslot(session, timeslot_id, event.id)
     RD.delete_timeslot(session, timeslot_id)
+    _sync_assignments(request, session, event)
     return _respond(request, session, event, round_id)
 
 
@@ -408,6 +428,7 @@ def solve(request: Request, round_id: int = Form(...), pin_started: int = Form(1
         RD.apply_result(session, round_id, result)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+    _sync_assignments(request, session, event)
     return _respond(request, session, event, round_id)
 
 
@@ -439,6 +460,7 @@ def force_place(request: Request, round_id: int = Form(...), timeslot_id: int = 
         RD.place(session, timeslot_id=timeslot_id, room_id=room_id, proposal_id=proposal_id)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+    _sync_assignments(request, session, event)
     return _respond(request, session, event, round_id)
 
 
@@ -460,6 +482,7 @@ def remove(request: Request, round_id: int = Form(...), proposal_id: int = Form(
     event = _event_of(session, token)
     owned_proposal(session, proposal_id, event.id)
     RD.remove_session(session, proposal_id)
+    _sync_assignments(request, session, event)
     return _respond(request, session, event, round_id)
 
 
@@ -481,6 +504,7 @@ def publish(request: Request, round_id: int = Form(...), token=Depends(require_a
     event = _event_of(session, token)
     owned_round(session, round_id, event.id)
     RD.publish(session, round_id)
+    _sync_assignments(request, session, event)
     return _respond(request, session, event, round_id)
 
 
