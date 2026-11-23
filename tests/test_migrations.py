@@ -56,7 +56,7 @@ def test_fresh_file_db_is_stamped_at_head(tmp_path):
 
     db = str(tmp_path / "fresh.db")
     create_app(Settings(secret_key="k", db_path=db, backup_dir=str(tmp_path),
-                        backup_interval_s=9999, preview_interval_s=9999,
+                        backup_interval_s=9999,
                         bootstrap_admin_code=None))
     head = ScriptDirectory.from_config(_alembic_cfg(db)).get_current_head()
     with create_engine(f"sqlite:///{db}").connect() as c:
