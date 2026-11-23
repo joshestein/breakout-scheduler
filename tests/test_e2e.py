@@ -501,6 +501,30 @@ def test_cross_round_placement_rejected_same_event(app):
     assert r.status_code == 400
 
 
+def test_force_place_rejects_second_placement_of_same_session(app):
+    csrf = _csrf(TestClient(app)); admin = TestClient(app)
+    _post(admin, "/events", csrf, {"name": "R", "participant_code": "p", "admin_code": "a",
+                                   "admin_name": "Org", "rooms": "Lib, 10\nHall, 10"})
+    _post(admin, "/admin/round", csrf, {"name": "R1"})
+    sf = app.state.session_factory
+    rid = app_round_id(sf)
+    with sf() as s:
+        room_ids = [str(r.id) for r in s.scalars(select(Room))]
+    _post(admin, "/admin/timeslot", csrf, {"round_id": rid, "name": "A",
+                                           "duration_minutes": "45", "room_ids": room_ids})
+    c1 = TestClient(app); _post(c1, "/enter", csrf, {"code": "p", "name": "Sam"})
+    _post(c1, "/propose", csrf, {"title": "Topic"})
+    with sf() as s:
+        pid = s.scalar(select(Proposal)).id
+        ts = s.scalar(select(Timeslot).where(Timeslot.round_id == rid)).id
+    def place(room):
+        return admin.post("/admin/force-place", headers={"X-CSRFToken": csrf},
+                          data={"round_id": rid, "timeslot_id": ts, "room_id": room,
+                                "proposal_id": pid}, follow_redirects=False)
+    assert place(room_ids[0]).status_code in (200, 303)
+    assert place(room_ids[1]).status_code == 409
+
+
 def test_description_optional_and_admin_toggle(app):
     csrf = _csrf(TestClient(app)); admin = TestClient(app)
     _post(admin, "/events", csrf, {"name": "R", "participant_code": "p", "admin_code": "a",

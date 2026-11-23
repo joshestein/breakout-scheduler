@@ -245,3 +245,18 @@ def test_backup_once_creates_file(tmp_path):
     dest = backup_once(str(db), str(tmp_path / "backups"), stamp="20260602-120000")
     import os
     assert os.path.exists(dest)
+
+
+def test_apply_result_rejects_infeasible_and_keeps_grid(session):
+    from dataclasses import replace
+    e, rooms, rnd, ts = _round_with_two_rooms(session)
+    u1 = _p(session, e, "U1")
+    a = P.propose(session, event_id=e.id, title="A", created_by=u1.id)
+    R.set_rating(session, participant_id=u1.id, proposal_id=a.id, stars=5)
+    good = RD.solve_round(session, rnd.id)
+    RD.apply_result(session, rnd.id, good)
+    before = session.query(Placement).count()
+    assert before >= 1
+    with pytest.raises(ValueError):
+        RD.apply_result(session, rnd.id, replace(good, status="INFEASIBLE", placements=[]))
+    assert session.query(Placement).count() == before
