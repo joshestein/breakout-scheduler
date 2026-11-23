@@ -36,7 +36,7 @@ def test_host_max_attendees_caps_seated():
     r = build_and_solve(p)
     assert r.status in ("OPTIMAL", "FEASIBLE")
     cell = r.placements[0]
-    assert cell.projected_attendance <= 2
+    assert cell.seated_guests <= 2
     assert cell.capacity == 2          # min(room 10, host cap 2)
     assert cell.overflow == 3          # 5 interested, 2 seats
 
@@ -53,7 +53,7 @@ def test_host_max_routes_overflow_to_next_best():
                **{(u, 200): 4 for u in (1, 2, 3)}})
     r = build_and_solve(p)
     capped = [pl for pl in r.placements if pl.candidate_id == 100]
-    assert capped and capped[0].projected_attendance <= 1
+    assert capped and capped[0].seated_guests <= 1
     assert not r.left_out.get(1)       # everyone still has somewhere to be
 
 
@@ -68,4 +68,4 @@ def test_cap_below_runner_count_floors_to_runners():
     r = build_and_solve(p)
     assert r.status in ("OPTIMAL", "FEASIBLE")
     assert r.placements, "capped session with co-runners must still be placeable"
-    assert r.placements[0].projected_attendance >= 3   # all three runners fit
+    assert r.placements[0].seated_guests == 1           # the cap counts guests; runners always fit

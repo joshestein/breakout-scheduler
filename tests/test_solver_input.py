@@ -83,3 +83,19 @@ def test_min_interest_excludes_runner_only_session(session):
 def test_merge_cycle_rejected():
     with pytest.raises(ValueError):
         merge_root(1, {1: 2, 2: 1})
+
+
+def test_floor_is_clamped_to_host_cap(session):
+    # round minimum 2, but the host caps the workshop at 1 guest: it must still be
+    # able to run (floor lowered to 1), not silently never run
+    s = session
+    e, room, rnd, ts = _base_event(s)
+    rnd.min_interest = 2
+    host = _participant(s, e, "Host"); guest = _participant(s, e, "Guest")
+    a = Proposal(event_id=e.id, round_id=rnd.id, title="Tiny", created_by=host.id,
+                 max_attendees=1); s.add(a); s.flush()
+    s.add(ProposalRunner(proposal_id=a.id, participant_id=host.id))
+    s.add(Rating(participant_id=guest.id, proposal_id=a.id, stars=5)); s.flush()
+    p = build_problem(s, rnd.id)
+    assert [c.min_seated for c in p.candidates if c.id == a.id] == [1]
+

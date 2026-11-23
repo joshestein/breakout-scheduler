@@ -15,7 +15,7 @@ def build_problem(session: Session, round_id: int,
                   pins: frozenset[tuple[int, int, int]] = frozenset(),
                   force_include: frozenset[int] = frozenset()) -> Problem:
     """`force_include` proposal ids become candidates even if they would not be
-    eligible — used when scoring the actual grid so a placed-but-now-ineligible
+    eligible. Used when scoring the actual grid so a placed-but-now-ineligible
     session isn't silently dropped from the stats."""
     rnd = session.get(Round, round_id)
 
@@ -76,9 +76,18 @@ def build_problem(session: Session, round_id: int,
                      select(TimeslotRoom).where(TimeslotRoom.timeslot_id == ts.id)).all()}
         slots.append(Slot(id=ts.id, position=ts.position, rooms=rooms))
 
+    # largest room any slot offers: a floor above it could never be met
+    biggest_room = max((cap for s in slots for cap in s.rooms.values()), default=1)
+
     def min_seated(p: Proposal) -> int:
+        """Non-hosts who must be seated: the proposer's number, else the round default.
+        Clamped to the host's cap and to the biggest room, so a small workshop is never
+        silently impossible. Never below 1."""
         n = (p.min_interest_override if p.min_interest_override is not None
              else rnd.min_interest)
+        n = min(n, biggest_room)
+        if p.max_attendees is not None:
+            n = min(n, p.max_attendees)
         return max(1, n)
 
     candidates = [

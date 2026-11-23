@@ -10,7 +10,7 @@
     <div class="arc-head"><h2>{{ rnd_by_id[s.round_id].name }}</h2>
       <span class="muted">{{ s.published_at.strftime('%Y-%m-%d %H:%M') }} · interest {{ stats.total_interest }}</span></div>
     <table class="arc-grid"><thead><tr><th>slot</th><th>room</th><th>session</th><th>fill</th></tr></thead>
-      <tbody>{% for c in grid %}<tr><td>{{ c.timeslot }}</td><td>{{ c.room }}</td><td>{{ c.title }}</td><td>{{ c.projected_attendance }}/{{ c.capacity }}{% if c.overflow %} +{{ c.overflow }}{% endif %}</td></tr>{% endfor %}</tbody>
+      <tbody>{% for c in grid %}<tr><td>{{ c.timeslot }}</td><td>{{ c.room }}</td><td>{{ c.title }}</td><td>{{ c.seated_guests }}/{{ c.capacity }}{% if c.overflow %} +{{ c.overflow }}{% endif %}</td></tr>{% endfor %}</tbody>
     </table>
   </section>
   {% else %}

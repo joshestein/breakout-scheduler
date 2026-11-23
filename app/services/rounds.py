@@ -260,7 +260,7 @@ def _snapshot_payload(session: Session, round_id: int) -> tuple[str, str]:
         "timeslot_id": pl.slot_id, "timeslot": slots.get(pl.slot_id),
         "room_id": pl.room_id, "room": rooms.get(pl.room_id),
         "proposal_id": pl.candidate_id, "title": titles.get(pl.candidate_id),
-        "projected_attendance": pl.projected_attendance, "capacity": pl.capacity,
+        "seated_guests": pl.seated_guests, "capacity": pl.capacity,
         "overflow": pl.overflow,
     } for pl in result.placements]
     stats = {

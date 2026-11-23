@@ -80,7 +80,10 @@ the database by a pure function (`app/solver_input.py`). Its goals, in strict or
    session never runs just because its host wants it.
 3. On an exact tie, prefer the earlier proposal.
 
-It solves goal 1 first, then solves goal 2 and 3 with goal 1's result held fixed.
+It is one weighted sum: each goal is scaled past the full range of the goals below it,
+so a lower goal can never outweigh a higher one. Generate stops after 2 s with the best
+schedule found so far, using 8 parallel workers. On a big retreat that schedule may not
+be the proven best, and two clicks on the same data can give different grids.
 
 subject to:
 
@@ -92,8 +95,9 @@ subject to:
   always fit.
 - **Minimum attendees**: a session runs only if at least N people besides its hosts are
   seated in it. N is the round's "min people per session" (default 2) unless the proposer
-  set their own. Pinned sessions skip this rule, so a hand edit never makes the model
-  unsolvable.
+  set their own. N is lowered to the host's max attendees and to the biggest room, so a
+  small workshop can still run. Pinned sessions skip this rule, so a hand edit never
+  makes the model unsolvable.
 - **Absent hosts**: a session whose hosts are all marked away does not run. A session
   with no host (added by the organizer) can still run.
 - **Runner presence**: a session's runner can't be in two places at once, and is seated in
@@ -132,7 +136,7 @@ This is a single container with SQLite on a mounted volume, chosen for operation
 simplicity. Be precise about what that buys you:
 
 - **Config changes need no redeploy.** Events, rooms, rounds, timeslots, proposals, and
-  round settings are all *data*. Running a retreat — even creating new events — never
+  round settings are all *data*. Running a retreat (even creating new events) never
   requires rebuilding or restarting the container.
 - **Code/template changes are a brief restart**, not zero-downtime. Templates and Python are
   baked into the image, so changing them means rebuild + container restart (~1s; in-flight

@@ -48,7 +48,7 @@ class PlacementOut:
     candidate_id: int
     slot_id: int
     room_id: int
-    projected_attendance: int
+    seated_guests: int           # people besides the hosts seated (same basis as capacity)
     capacity: int
     overflow: int
 
