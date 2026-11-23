@@ -3,17 +3,16 @@ FROM python:3.11-slim AS base
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1 \
     DB_PATH=/data/app.db \
     BACKUP_DIR=/data/backups
 
 WORKDIR /app
 
-# Install deps first for layer caching
+# Install deps first for layer caching. pyproject.toml is the single source of
+# truth; uv installs its deps without building the project (as CI does).
+COPY --from=ghcr.io/astral-sh/uv:0.5.11 /uv /usr/local/bin/uv
 COPY pyproject.toml ./
-RUN pip install --upgrade pip && pip install \
-      "fastapi>=0.110" "uvicorn[standard]>=0.29" "sqlalchemy>=2.0" "alembic>=1.13" \
-      "ortools>=9.9" "itsdangerous>=2.1" "jinja2>=3.1" "python-multipart>=0.0.9"
+RUN uv pip install --system --no-cache -r pyproject.toml
 
 COPY . .
 
