@@ -33,8 +33,9 @@ Then they:
 - **Propose breakouts.** A proposal is just a title by default. Under optional settings
   a proposer can:
   - add a short **description** (only when the organizer has enabled descriptions for the event);
-  - set a **maximum** attendance (for an intimate workshop) or a **minimum** below which
-    the session shouldn't run.
+  - set a **maximum** number of attendees besides the hosts (for an intimate workshop),
+    or a **minimum** below which the session shouldn't run (this replaces the round's
+    default minimum for that session).
 - **Rate** each proposal **1–5 stars** (1 = won't go … 5 = must). Ratings ≥ 3 count as
   "would attend". New proposals from others stream in without disturbing what they're
   looking at.
@@ -49,7 +50,8 @@ Then they:
 
 Organizers enter the admin code and get a dense console:
 
-- A **fairness slider** trading off popularity against coverage (the λ in the model below).
+- A **min people per session** setting: how many people besides the hosts must be seated
+  for a session to run (default 2).
 - The live **schedule grid** (timeslots × rooms) with a **Generate** button that runs the solver, and **pin / drop / move /
   place** controls to hand-tune placements and re-solve around the pins.
 - A **consequences panel** showing, for the current grid: per-slot **coverage %**, who's
@@ -70,21 +72,30 @@ Organizers enter the admin code and get a dense console:
 ## The scheduling model
 
 The schedule is computed by an OR-Tools **CP-SAT** solver (`app/solver.py`), built from
-the database by a pure function (`app/solver_input.py`). It maximizes:
+the database by a pure function (`app/solver_input.py`). Its goals, in strict order:
 
-```
-satisfied weighted interest  −  λ · (people left with nothing they'd attend)
-```
+1. Leave as few people as possible with nothing they'd attend in a slot.
+2. Then maximize interest points of the people seated: `★1–2 → 0` (won't attend),
+   `★3 → 1`, `★4 → 2`, `★5 → 3`. A host gets no points for their own session, so a
+   session never runs just because its host wants it.
+3. On an exact tie, prefer the earlier proposal.
+
+It solves goal 1 first, then solves goal 2 and 3 with goal 1's result held fixed.
 
 subject to:
 
 - **Room capacity** is a hard seat cap — the solver never seats more people in a room than
   it holds. Over-subscription is *not* penalized: a popular session still runs, and the
   people who don't fit are routed to their next-best session (overflow is reported, not punished).
-- **Per-session max attendees** (host cap) is an additional hard seat cap; the effective
-  cap is the tighter of the room and the host's number. Runners always fit.
-- **Per-session min attendees** is a hard eligibility gate — a session below the threshold
-  of interested people isn't scheduled.
+- **Per-session max attendees** (host cap) is an additional hard seat cap on people besides
+  the hosts; the effective cap is the tighter of the room and the host's number. Hosts
+  always fit.
+- **Minimum attendees**: a session runs only if at least N people besides its hosts are
+  seated in it. N is the round's "min people per session" (default 2) unless the proposer
+  set their own. Pinned sessions skip this rule, so a hand edit never makes the model
+  unsolvable.
+- **Absent hosts**: a session whose hosts are all marked away does not run. A session
+  with no host (added by the organizer) can still run.
 - **Runner presence**: a session's runner can't be in two places at once, and is seated in
   their own session when it runs.
 - Each session runs **at most once**, in one room and one timeslot.
@@ -92,9 +103,6 @@ subject to:
 The grid the organizer sees is *scored* (not re-solved) on a content-addressed cache, so
 the console doesn't re-run the solver unless something actually changed. The full re-solve
 only happens when you click **Generate**.
-
-Weighting ramps so enthusiasm dominates: stars map to weights `1–2 → 0` (won't attend),
-`3 → 1`, `4 → 4`, `5 → 9`.
 
 ## Configuration (environment variables)
 
@@ -123,8 +131,8 @@ Weighting ramps so enthusiasm dominates: stars map to weights `1–2 → 0` (won
 This is a single container with SQLite on a mounted volume, chosen for operational
 simplicity. Be precise about what that buys you:
 
-- **Config changes need no redeploy.** Events, rooms, rounds, timeslots, proposals, and the
-  fairness slider are all *data*. Running a retreat — even creating new events — never
+- **Config changes need no redeploy.** Events, rooms, rounds, timeslots, proposals, and
+  round settings are all *data*. Running a retreat — even creating new events — never
   requires rebuilding or restarting the container.
 - **Code/template changes are a brief restart**, not zero-downtime. Templates and Python are
   baked into the image, so changing them means rebuild + container restart (~1s; in-flight
