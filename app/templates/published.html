@@ -23,13 +23,13 @@
           <h2>{{ slot.ts.name }}</h2>
           <span class="countdown" aria-live="polite"></span>
         </div>
-        {% if not public and not slot.has_ratings %}<div class="hint">You haven't rated — showing most popular.</div>{% endif %}
+        {% if not public and slot.cells and not slot.highlight %}<div class="hint">No seat was picked for you here. Go to any session with space.</div>{% endif %}
         <ul class="slot-rooms">
           {% for c in slot.cells %}
           <li class="{% if c.key == slot.highlight %}go{% endif %}">
             <span class="where">{{ c.room_label }}</span>
             <span class="what">{{ c.title }}{% if c.cap %} <span class="cap-chip" title="host caps this at {{ c.cap }}">cap {{ c.cap }}</span>{% endif %}</span>
-            {% if c.key == slot.highlight %}<span class="badge">{{ 'most wanted' if public else '→ you' }}</span>{% endif %}
+            {% if c.key == slot.highlight %}<span class="badge">{{ 'most wanted' if public else '→ your seat' }}</span>{% endif %}
           </li>
           {% else %}
           <li class="empty">— nothing scheduled —</li>

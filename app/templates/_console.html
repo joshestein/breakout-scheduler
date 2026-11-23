@@ -229,7 +229,7 @@
       {% if not pool %}
         <div class="diag ok">✓ Board ready. Now add sessions (left rail) or have people propose &amp; rate at the participant link.</div>
       {% elif n_eligible == 0 %}
-        <div class="diag warn">⚠ <b>No sessions are eligible yet.</b> {{ pool|length }} proposed · {{ n_rated }} {{ 'person has' if n_rated == 1 else 'people have' }} rated, but none has enough interested people besides its hosts (★3+). Get ratings, lower “min people per session”, or place a session by hand.</div>
+        <div class="diag warn">⚠ <b>No sessions are eligible yet.</b> {{ pool|length }} proposed · {{ n_rated }} {{ 'person has' if n_rated == 1 else 'people have' }} rated, but none has both a host and enough interested people besides its hosts (★3+). Get hosts and ratings, lower “min people per session”, or place a session by hand.</div>
       {% elif not placements %}
         <div class="diag ok">✓ <b>{{ n_eligible }}</b> eligible session{{ 's' if n_eligible != 1 }}. Click <b>⚙ Generate</b>.</div>
       {% else %}

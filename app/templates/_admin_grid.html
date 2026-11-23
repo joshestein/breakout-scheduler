@@ -36,7 +36,8 @@
               {% set c = cells.get((ts.id, r.id)) %}
               <td class="cell filled {% if c.overflow > 0 %}over{% endif %} {% if c.below_floor %}below-floor{% endif %}">
                 <div class="ct">{{ c.p.title }}{% if pl.pinned %} <span class="pin-tag" title="pinned: Generate keeps it here">📌</span>{% endif %}</div>
-                <div class="meta">{{ ('host: ' ~ (c.hosts | join(', '))) if c.hosts else 'no host' }}</div>
+                {% if c.hosts %}<div class="meta">host: {{ c.hosts | join(', ') }}</div>
+                {% else %}<div class="meta ov" title="nobody runs this session. Generate keeps it only while it is pinned.">⚠ no host</div>{% endif %}
                 {% if c.stats %}
                 <div class="bar"><i style="width:{{ [100, (100 * c.guests / c.capacity) if c.capacity else 0] | min }}%"></i></div>
                 <div class="meta">{{ c.guests }} seated / {{ c.capacity }} seats{% if c.overflow > 0 %} · <span class="ov">{{ c.overflow }} more wanted in</span>{% endif %}</div>
