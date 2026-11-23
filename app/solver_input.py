@@ -16,10 +16,11 @@ class Eligibility:
     so its counts and reasons match what Generate does."""
     interested: int   # people besides the hosts who rated it 3+ stars
     floor: int        # people besides the hosts who must be seated for it to run
+    hosted: bool      # at least one person runs it; a session with no host never runs
 
     @property
     def eligible(self) -> bool:
-        return self.interested >= self.floor
+        return self.hosted and self.interested >= self.floor
 
 
 @dataclass(frozen=True)
@@ -77,8 +78,9 @@ def _eligibility(d: _RoundData) -> dict[int, Eligibility]:
         n = min(n, biggest_room)
         if p.max_attendees is not None:
             n = min(n, p.max_attendees)
-        out[p.id] = Eligibility(interested=len(raters[p.id] - d.runners.get(p.id, set())),
-                                floor=max(1, n))
+        hosts = d.runners.get(p.id, set())
+        out[p.id] = Eligibility(interested=len(raters[p.id] - hosts),
+                                floor=max(1, n), hosted=bool(hosts))
     return out
 
 
@@ -91,8 +93,8 @@ def build_problem(session: Session, round_id: int,
                   pins: frozenset[tuple[int, int, int]] = frozenset(),
                   force_include: frozenset[int] = frozenset()) -> Problem:
     """`force_include` proposal ids become candidates even if they would not be
-    eligible. Used when scoring the actual grid so a placed-but-now-ineligible
-    session isn't silently dropped from the stats."""
+    eligible (no host, or too few interested). Used for pinned sessions and when
+    scoring the actual grid, so a hand edit is flagged, never silently dropped."""
     d = _load(session, round_id)
     elig = _eligibility(d)
     active = [p for p in d.props if p.status == "active"]
