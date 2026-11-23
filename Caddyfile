@@ -1,0 +1,11 @@
+# Reverse proxy with automatic HTTPS (Let's Encrypt). SITE_ADDRESS is the public
+# hostname, e.g. breakouts.example.com. Before DNS is ready, use sslip.io:
+# breakouts.203-0-113-7.sslip.io (the VPS IP with dashes).
+{$SITE_ADDRESS} {
+	reverse_proxy app:8000 {
+		# The app reads the client IP (for rate limiting) from CF-Connecting-IP when
+		# the peer is a trusted proxy. Set it to the real peer, replacing any
+		# client-sent copy, so the app needs only one header path.
+		header_up CF-Connecting-IP {remote_host}
+	}
+}

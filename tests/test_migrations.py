@@ -45,3 +45,19 @@ def test_migrated_schema_matches_create_all():
         for table in ("proposals", "participants", "timeslot_rooms"):
             assert ({c["name"] for c in mig.get_columns(table)}
                     == {c["name"] for c in new.get_columns(table)}), table
+
+
+def test_fresh_file_db_is_stamped_at_head(tmp_path):
+    """create_all on a brand-new DB must record the Alembic head, so a later
+    RUN_MIGRATIONS=1 upgrade does not try to re-create existing tables."""
+    from alembic.script import ScriptDirectory
+    from app.config import Settings
+    from app.webapp import create_app
+
+    db = str(tmp_path / "fresh.db")
+    create_app(Settings(secret_key="k", db_path=db, backup_dir=str(tmp_path),
+                        backup_interval_s=9999, preview_interval_s=9999,
+                        bootstrap_admin_code=None))
+    head = ScriptDirectory.from_config(_alembic_cfg(db)).get_current_head()
+    with create_engine(f"sqlite:///{db}").connect() as c:
+        assert c.exec_driver_sql("select version_num from alembic_version").scalar() == head

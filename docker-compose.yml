@@ -4,38 +4,86 @@ services:
     image: breakout-scheduler:latest
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      # Loopback only: public traffic goes through Caddy or the tunnel. (Docker
+      # publishes ports past ufw, so "8000:8000" would expose plain http.)
+      - "127.0.0.1:8000:8000"
+    # Values come from .env (gitignored) or the shell; see .env.example.
     environment:
       # CHANGE THIS: signs auth/CSRF cookies. Generate with `openssl rand -hex 32`.
-      SECRET_KEY: "change-me-to-a-long-random-string"
+      SECRET_KEY: "${SECRET_KEY:-change-me-to-a-long-random-string}"
       DB_PATH: /data/app.db
       BACKUP_DIR: /data/backups
       BACKUP_INTERVAL_S: "300"
       PREVIEW_INTERVAL_S: "3"
       # Optional: require this code to create the FIRST event, then it's disabled.
-      # BOOTSTRAP_ADMIN_CODE: "set-once-secret"
-      # Set to 1 only for a schedule-changing redeploy (runs Alembic; back up first).
-      # RUN_MIGRATIONS: "0"
+      BOOTSTRAP_ADMIN_CODE: "${BOOTSTRAP_ADMIN_CODE:-}"
+      # Set to 1 only for a schema-changing redeploy (runs Alembic; back up first).
+      RUN_MIGRATIONS: "${RUN_MIGRATIONS:-0}"
+      # Production behind HTTPS (Caddy or tunnel): COOKIE_SECURE=1 and BASE_URL set.
+      COOKIE_SECURE: "${COOKIE_SECURE:-0}"
+      BASE_URL: "${BASE_URL:-}"
+      VAPID_SUBJECT: "${VAPID_SUBJECT:-mailto:admin@example.com}"
+      # Caddy's fixed address (below): trust the client IP it forwards.
+      TRUSTED_PROXIES: "172.30.0.10"
     volumes:
       - breakout-data:/data
 
+  # Optional: HTTPS on a VPS via Caddy (automatic Let's Encrypt certificates).
+  # Point an A record for SITE_ADDRESS at the VPS, open ports 80 and 443, then:
+  #   docker compose --profile caddy up -d --build
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    profiles: ["caddy"]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    # No `:?` guard: compose interpolates every service, even ones whose profile
+    # is off, so a required var here would break plain `docker compose up`.
+    environment:
+      SITE_ADDRESS: "${SITE_ADDRESS:-}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      default:
+        ipv4_address: 172.30.0.10
+    depends_on:
+      - app
+
   # Optional: expose the app at a public hostname via Cloudflare Tunnel.
   # Token-based + dashboard-managed: create a tunnel in Cloudflare Zero Trust,
-  # add a public hostname mapping it to service http://app:8000, copy the tunnel
-  # token, and run with CF_TUNNEL_TOKEN set. No ports need to be published on the
-  # host, and no account-wide credentials are involved. Start with:
+  # add a public hostname mapping it to service http://localhost:8000, copy the
+  # tunnel token, and run with CF_TUNNEL_TOKEN set. No ports need to be published
+  # on the host, and no account-wide credentials are involved. Start with:
   #   CF_TUNNEL_TOKEN=... docker compose --profile tunnel up -d
   tunnel:
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
     profiles: ["tunnel"]
     command: tunnel --no-autoupdate run
+    # Share the app's network namespace so the tunnel connects from loopback,
+    # which the app trusts for CF-Connecting-IP. From a separate container every
+    # user would share one rate-limit key.
+    network_mode: "service:app"
     environment:
-      TUNNEL_TOKEN: "${CF_TUNNEL_TOKEN:?set CF_TUNNEL_TOKEN to your tunnel token}"
+      TUNNEL_TOKEN: "${CF_TUNNEL_TOKEN:-}"
     depends_on:
       - app
+
+networks:
+  default:
+    ipam:
+      config:
+        # Fixed subnet so Caddy gets a stable IP for TRUSTED_PROXIES.
+        - subnet: 172.30.0.0/24
 
 volumes:
   # Persists the SQLite DB + backups across redeploys. Back this up:
   #   docker compose exec app python -c "import sqlite3; sqlite3.connect('/data/app.db').execute('VACUUM INTO \"/data/backups/manual.db\"')"
   breakout-data:
+  # Caddy's TLS certificates and state. Losing it forces re-issuance (rate-limited).
+  caddy-data:
+  caddy-config:
