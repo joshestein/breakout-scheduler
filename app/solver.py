@@ -6,7 +6,7 @@ from ortools.sat.python import cp_model
 
 from app.types import WEIGHT, INTERESTED_STARS, Problem, Result, PlacementOut
 
-MAX_TIME_S = 2.0
+MAX_TIME_S = 4.0
 
 
 def _weight(problem: Problem, u: int, cid: int, runners: frozenset[int]) -> int:

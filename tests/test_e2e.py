@@ -621,3 +621,22 @@ def test_console_explains_cards_and_unplaced_sessions(app):
     assert "3 of 9 have a session" in html              # Ann + G1 + G2, of the 2 hosts + 7 raters
     assert "Quiet" in html and "haven" in html          # non-raters are listed
 
+
+def test_console_badge_uses_clamped_floor(app):
+    # round minimum 2, host caps the workshop at 1 guest, 1 guest is keen: it can run,
+    # so the pool must not say it is below its minimum
+    csrf = _csrf(TestClient(app)); admin = TestClient(app)
+    _post(admin, "/events", csrf, {"name": "R", "participant_code": "p", "admin_code": "a",
+                                   "admin_name": "Org", "rooms": "Lib, 10"})
+    _post(admin, "/admin/round", csrf, {"name": "R1"})
+    sf = app.state.session_factory
+    rid = app_round_id(sf)
+    host = TestClient(app); _post(host, "/enter", csrf, {"code": "p", "name": "Host"})
+    _post(host, "/propose", csrf, {"title": "Tiny", "max_attendees": "1"})
+    with sf() as s:
+        pid = s.scalar(select(Proposal).where(Proposal.title == "Tiny")).id
+    guest = TestClient(app); _post(guest, "/enter", csrf, {"code": "p", "name": "Guest"})
+    _post(guest, "/rate", csrf, {"proposal_id": pid, "stars": 5})
+    html = admin.get(f"/admin?round_id={rid}").text
+    assert "Tiny" in html and "1 want it, needs 1" not in html and "needs 2" not in html
+    assert "not picked: 1 want it" in html

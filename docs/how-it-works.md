@@ -85,7 +85,7 @@ the database by a pure function (`app/solver_input.py`). Its goals, in strict or
 3. On an exact tie, prefer the earlier proposal.
 
 It is one weighted sum: each goal is scaled past the full range of the goals below it,
-so a lower goal can never outweigh a higher one. Generate stops after 2 s with the best
+so a lower goal can never outweigh a higher one. Generate stops after 4 s with the best
 schedule found so far, using 8 parallel workers. On a big retreat that schedule may not
 be the proven best, and two clicks on the same data can give different grids.
 

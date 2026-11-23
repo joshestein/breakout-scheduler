@@ -1,5 +1,5 @@
 from app.models import Event, Room, Participant, Proposal, ProposalRunner, Rating, Round, Timeslot
-from app.solver_input import build_problem
+from app.solver_input import build_problem, eligibility
 
 
 def _base_event(s):
@@ -76,4 +76,17 @@ def test_floor_is_clamped_to_host_cap(session):
     s.add(Rating(participant_id=guest.id, proposal_id=a.id, stars=5)); s.flush()
     p = build_problem(s, rnd.id)
     assert [c.min_seated for c in p.candidates if c.id == a.id] == [1]
+
+
+def test_eligibility_ignores_hosts_own_rating(session):
+    # the host rates their own session 5 stars: that does not count toward the floor
+    s = session
+    e, room, rnd, ts = _base_event(s)
+    host = _participant(s, e, "Host"); guest = _participant(s, e, "Guest")
+    a = Proposal(event_id=e.id, round_id=rnd.id, title="A", created_by=host.id); s.add(a); s.flush()
+    s.add(ProposalRunner(proposal_id=a.id, participant_id=host.id))
+    s.add(Rating(participant_id=host.id, proposal_id=a.id, stars=5))
+    s.add(Rating(participant_id=guest.id, proposal_id=a.id, stars=3)); s.flush()
+    el = eligibility(s, rnd.id)[a.id]
+    assert (el.interested, el.floor, el.eligible) == (1, 1, True)
 

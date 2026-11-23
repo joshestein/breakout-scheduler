@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.models import (Event, Participant, Proposal, ProposalRunner, Rating, Room,
                         Round, Timeslot, Placement)
 from app.types import INTERESTED_STARS
-from app.solver_input import min_seated
+from app.solver_input import Eligibility, eligibility
 from app.deps import get_session, require_admin, require_csrf, load_participant
 from app.render import render
 from app.scoping import (owned_round, owned_proposal, owned_timeslot, owned_placement,
@@ -68,10 +68,11 @@ def _eval_fingerprint(session: Session, rnd: Round) -> tuple:
     return (rnd.min_interest, ts_fp, rooms_fp, props_fp, pls_fp, ratings_fp, runners_fp)
 
 
-def _session_info(p: Proposal, rnd: Round, ratings: list[Rating], hosts: set[int],
-                  names: dict[int, str], biggest_room: int) -> dict:
+def _session_info(p: Proposal, el: Eligibility, ratings: list[Rating], hosts: set[int],
+                  names: dict[int, str]) -> dict:
     """Counts only (no per-person stars): who hosts, how many people besides the
-    hosts want it, and how many gave each star level."""
+    hosts want it, and how many gave each star level. `interested` and `floor` come
+    from the same eligibility code Generate uses."""
     mine = [r for r in ratings if r.proposal_id == p.id]
     guests = [r for r in mine if r.participant_id not in hosts]
     stars = {s: sum(1 for r in guests if r.stars == s) for s in (5, 4, 3)}
@@ -79,11 +80,11 @@ def _session_info(p: Proposal, rnd: Round, ratings: list[Rating], hosts: set[int
         "p": p,
         "hosts": sorted(names.get(u, "?") for u in hosts),
         "by": names.get(p.created_by),
-        "interested": sum(stars.values()),
+        "interested": el.interested,
         "stars": stars,
         "n_raters": len(mine),
         "avg": round(sum(r.stars for r in mine) / len(mine), 1) if mine else 0,
-        "floor": min_seated(p, rnd, biggest_room),
+        "floor": el.floor,
     }
 
 
@@ -157,8 +158,8 @@ def _context(request: Request, session: Session, event: Event, rnd: Round | None
         result = RD.evaluate_current(session, rnd.id)
         cache[rnd.id] = (fp, result)
 
-    biggest = max((r.capacity for r in rooms), default=1)
-    info = {p.id: _session_info(p, rnd, ratings, hosts_of[p.id], names, biggest) for p in props}
+    elig = eligibility(session, rnd.id)
+    info = {p.id: _session_info(p, elig[p.id], ratings, hosts_of[p.id], names) for p in props}
     active = [info[p.id] for p in props if p.status == "active"]
     room_name = {r.id: r.name for r in rooms}
     ts_name = {ts.id: ts.name for ts in timeslots}
