@@ -6,7 +6,8 @@ from datetime import datetime, timezone
 from sqlalchemy import select, delete
 from sqlalchemy.orm import Session
 
-from app.models import Round, Timeslot, Placement, Room, Proposal, ProposalRunner, Participant
+from app.models import (Assignment, Round, Timeslot, Placement, Room, Proposal,
+                        ProposalRunner, Participant)
 from app.types import Result
 from app.solver_input import build_problem
 from app.solver import build_and_solve
@@ -81,6 +82,7 @@ def edit_timeslot(session: Session, timeslot_id: int, *, name: str,
 
 
 def delete_timeslot(session: Session, timeslot_id: int) -> None:
+    session.execute(delete(Assignment).where(Assignment.timeslot_id == timeslot_id))
     session.execute(delete(Placement).where(Placement.timeslot_id == timeslot_id))
     session.execute(delete(Timeslot).where(Timeslot.id == timeslot_id))
     session.flush()
@@ -141,6 +143,26 @@ def apply_result(session: Session, round_id: int, result: Result, *,
                               proposal_id=pl.candidate_id, pinned=False))
         occupied.add((pl.slot_id, pl.room_id))
     session.flush()
+
+
+def save_assignments(session: Session, round_id: int, result: Result) -> None:
+    """Replace the round's saved seating with `result`'s. A grid that breaks a rule
+    has no seating, so it clears the round's assignments."""
+    ts_ids = [t.id for t in session.scalars(
+        select(Timeslot).where(Timeslot.round_id == round_id)).all()]
+    if not ts_ids:
+        return
+    session.execute(delete(Assignment).where(Assignment.timeslot_id.in_(ts_ids)))
+    for (u, slot_id), cid in result.assignments.items():
+        session.add(Assignment(timeslot_id=slot_id, participant_id=u, proposal_id=cid))
+    session.flush()
+
+
+def assignments_of(session: Session, round_id: int, participant_id: int) -> dict[int, int]:
+    """timeslot_id -> proposal_id where this person is seated in the round."""
+    return {a.timeslot_id: a.proposal_id for a in session.scalars(
+        select(Assignment).join(Timeslot, Timeslot.id == Assignment.timeslot_id).where(
+            Timeslot.round_id == round_id, Assignment.participant_id == participant_id))}
 
 
 def _placements(session: Session, round_id: int) -> list[Placement]:

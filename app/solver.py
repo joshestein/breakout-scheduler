@@ -180,6 +180,7 @@ def build_and_solve(problem: Problem) -> Result:
     placements: list[PlacementOut] = []
     total_interest = 0
     seated: set[tuple[int, int]] = set()
+    assignments: dict[tuple[int, int], int] = {}
     if ok:
         for (cid, slot_id, room_id), v in place.items():
             if val(v) != 1:
@@ -192,7 +193,8 @@ def build_and_solve(problem: Problem) -> Result:
                 candidate_id=cid, slot_id=slot_id, room_id=room_id,
                 seated_guests=sum(val(a) for a in attending(cid, slot_id, include_runners=False)),
                 capacity=cap, overflow=max(0, demand - cap)))
-        seated = {(u, cid) for (u, cid, _sid), var in attend.items() if val(var) == 1}
+        assignments = {(u, sid): cid for (u, cid, sid), var in attend.items() if val(var) == 1}
+        seated = {(u, cid) for (u, _sid), cid in assignments.items()}
         total_interest = sum(_weight(problem, u, cid, runner_of[cid]) for (u, cid) in seated)
 
     # % of present people who got into one of their MOST preferred (max-star) sessions
@@ -236,4 +238,4 @@ def build_and_solve(problem: Problem) -> Result:
                   total_interest=total_interest, n_present=len(problem.present),
                   coverage_pct=coverage_pct, left_out=left_out,
                   forced_uncovered=forced, pin_conflicts=pin_conflicts,
-                  top_choice_pct=top_choice_pct)
+                  top_choice_pct=top_choice_pct, assignments=assignments)
