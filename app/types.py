@@ -5,8 +5,9 @@ from dataclasses import dataclass, field
 # Single source of truth for interest weighting and the "would attend" threshold.
 # The 5 levels mean: 1 = won't go, 2 = rather not, 3 = maybe, 4 = want, 5 = must.
 # 1-2 are negative (won't attend) -> weight 0 and NOT counted as interested.
-# 3+ means "would attend"; weight ramps so enthusiasm (4-5) dominates.
-WEIGHT: dict[int, int] = {1: 0, 2: 0, 3: 1, 4: 4, 5: 9}
+# 3+ means "would attend"; points are linear (stars - 2) so one enthusiastic rater
+# cannot outweigh many "maybe"s.
+WEIGHT: dict[int, int] = {1: 0, 2: 0, 3: 1, 4: 2, 5: 3}
 STAR_LABELS: dict[int, str] = {1: "won't go", 2: "rather not", 3: "maybe",
                                4: "want", 5: "must"}
 INTERESTED_STARS: int = 3  # >= this counts as "would attend" (coverage + eligibility)
