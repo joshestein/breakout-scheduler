@@ -170,8 +170,10 @@ def propose_delete(request: Request, proposal_id: int = Form(...),
 
 
 def build_published_grid(session: Session, event: Event, rnd: Round,
-                         my_stars: dict[int, int]) -> list[dict]:
-    """The published lineup (the live grid), with clocks and a per-viewer highlight."""
+                         mine: dict[int, int] | None = None) -> list[dict]:
+    """The published lineup (the live grid), with clocks and a highlight per slot.
+    `mine` (timeslot_id -> proposal_id) is where the solver seated the viewer; without
+    a viewer the highlight is the most wanted session."""
     props = {p.id: p for p in session.scalars(
         select(Proposal).where(Proposal.event_id == event.id))}
     rooms = {r.id: r for r in session.scalars(
@@ -194,18 +196,15 @@ def build_published_grid(session: Session, event: Event, rnd: Round,
             label = room.name if room else "?"
             cells.append({"key": pid, "title": props[pid].title if pid in props else "?",
                           "room_id": rid,
-                          "room_label": label, "my_stars": my_stars.get(pid, 0),
-                          "interested": interested,
+                          "room_label": label, "interested": interested,
                           "cap": props[pid].max_attendees if pid in props else None})
-        rated = [c for c in cells if c["my_stars"] > 0]
-        if rated:
-            highlight = max(rated, key=lambda c: c["my_stars"])["key"]
+        if mine is not None:
+            highlight = mine.get(ts.id)
         elif cells:
             highlight = max(cells, key=lambda c: c["interested"])["key"]
         else:
             highlight = None
-        grid.append({"ts": ts, "cells": cells, "highlight": highlight,
-                     "has_ratings": bool(rated)})
+        grid.append({"ts": ts, "cells": cells, "highlight": highlight})
     return grid
 
 
@@ -216,9 +215,7 @@ def published(request: Request, token=Depends(require_participant),
     rnd = _latest_round(session, event.id, "published")
     if rnd is None:
         return render(request, "published.html", me=me, event=event, rnd=None, grid=[])
-    my_stars = {r.proposal_id: r.stars for r in session.scalars(
-        select(Rating).where(Rating.participant_id == me.id))}
-    grid = build_published_grid(session, event, rnd, my_stars)
+    grid = build_published_grid(session, event, rnd, RD.assignments_of(session, rnd.id, me.id))
     return render(request, "published.html", me=me, event=event, rnd=rnd, grid=grid,
                   schedule_md=RD.schedule_markdown(session, rnd.id))
 
@@ -231,7 +228,7 @@ def present(request: Request, code: str, session: Session = Depends(get_session)
     if event is None:
         raise HTTPException(status_code=404, detail="unknown event")
     rnd = _latest_round(session, event.id, "published")
-    grid = build_published_grid(session, event, rnd, {}) if rnd else []
+    grid = build_published_grid(session, event, rnd) if rnd else []
     now = datetime.now(timezone.utc)
     now_ids = set()
     for slot in grid:
@@ -251,7 +248,7 @@ def public_schedule(request: Request, code: str, session: Session = Depends(get_
     if event is None:
         raise HTTPException(status_code=404, detail="unknown event")
     rnd = _latest_round(session, event.id, "published")
-    grid = build_published_grid(session, event, rnd, {}) if rnd else []
+    grid = build_published_grid(session, event, rnd) if rnd else []
     return render(request, "published.html", me=None, event=event, rnd=rnd,
                   grid=grid, public=True, join_code=event.participant_code,
                   schedule_md=RD.schedule_markdown(session, rnd.id) if rnd else "")
