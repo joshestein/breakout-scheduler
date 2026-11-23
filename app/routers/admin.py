@@ -420,7 +420,10 @@ def solve(request: Request, round_id: int = Form(...), pin_started: int = Form(1
     if pin_started:
         RD.pin_started_placements(session, round_id)
     result = RD.solve_round(session, round_id, lam=rnd.lambda_fairness)
-    RD.apply_result(session, round_id, result)
+    try:
+        RD.apply_result(session, round_id, result)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     return _respond(request, session, event, round_id)
 
 
