@@ -477,6 +477,10 @@ def force_place(request: Request, round_id: int = Form(...), timeslot_id: int = 
     if session.scalar(select(Placement).where(Placement.timeslot_id == timeslot_id,
                                               Placement.room_id == room_id)):
         raise HTTPException(status_code=409, detail="cell already occupied")
+    round_ts = select(Timeslot.id).where(Timeslot.round_id == session.get(Timeslot, timeslot_id).round_id)
+    if session.scalar(select(Placement).where(Placement.proposal_id == proposal_id,
+                                              Placement.timeslot_id.in_(round_ts))):
+        raise HTTPException(status_code=409, detail="session already placed in this round")
     RD.force_place(session, timeslot_id=timeslot_id, room_id=room_id, proposal_id=proposal_id)
     return _respond(request, session, event, round_id)
 
