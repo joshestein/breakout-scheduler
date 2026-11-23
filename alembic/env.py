@@ -19,7 +19,8 @@ config.set_main_option("sqlalchemy.url", f"sqlite:///{_db_path}")
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # Keep the app's and uvicorn's loggers alive when the app calls Alembic at startup.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # Model metadata for 'autogenerate' support.
 target_metadata = Base.metadata
