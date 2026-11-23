@@ -106,6 +106,17 @@ class Placement(Base):
     pinned: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
+class Assignment(Base):
+    """Where the solver seated a person in a timeslot of a published round. Saved so
+    the person sees the same room every time, not a fresh guess per page load."""
+    __tablename__ = "assignments"
+    __table_args__ = (UniqueConstraint("timeslot_id", "participant_id"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    timeslot_id: Mapped[int] = mapped_column(ForeignKey("timeslots.id"), index=True)
+    participant_id: Mapped[int] = mapped_column(ForeignKey("participants.id"), index=True)
+    proposal_id: Mapped[int] = mapped_column(ForeignKey("proposals.id"), index=True)
+
+
 class PushSubscription(Base):
     __tablename__ = "push_subscriptions"
     __table_args__ = (UniqueConstraint("endpoint"),)
