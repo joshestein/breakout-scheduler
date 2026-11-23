@@ -310,7 +310,7 @@ label.tiny{display:flex;flex-direction:column;gap:.2rem;font-family:var(--mono);
 .cell.over{box-shadow:inset 3px 0 0 var(--over)}
 .cell.below-floor{box-shadow:inset 3px 0 0 var(--soft)}
 .cell .place select{max-width:100%}
-.card .ct{font-family:var(--serif);font-size:.95rem;font-weight:600;line-height:1.15;padding:.5rem .55rem 0}
+.cell .ct{font-family:var(--serif);font-size:.95rem;font-weight:600;line-height:1.15;padding:.5rem .55rem 0}
 .bar{height:4px;background:var(--fainter);margin:.4rem .55rem 0;overflow:hidden;border-radius:2px}
 .bar i{display:block;height:100%;background:var(--forest)}
 .cell.over .bar i{background:var(--over)}

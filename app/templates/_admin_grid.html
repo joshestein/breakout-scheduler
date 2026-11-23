@@ -35,20 +35,18 @@
             {% if pl %}
               {% set c = cells.get((ts.id, r.id)) %}
               <td class="cell filled {% if c.overflow > 0 %}over{% endif %} {% if c.below_floor %}below-floor{% endif %}">
-                <div class="card">
-                  <div class="ct">{{ c.p.title }}{% if pl.pinned %} <span class="pin-tag" title="pinned: Generate keeps it here">📌</span>{% endif %}</div>
-                  <div class="meta">{{ ('host: ' ~ (c.hosts | join(', '))) if c.hosts else 'no host' }}</div>
-                  {% if c.stats %}
-                  <div class="bar"><i style="width:{{ [100, (100 * c.guests / c.capacity) if c.capacity else 0] | min }}%"></i></div>
-                  <div class="meta">{{ c.guests }} seated / {{ c.capacity }} seats{% if c.overflow > 0 %} · <span class="ov">{{ c.overflow }} more wanted in</span>{% endif %}</div>
-                  {% endif %}
-                  <div class="meta" title="people besides the hosts who rated it ★3 or more">{{ c.interested }} want it{% if c.interested %}: ★5×{{ c.stars[5] }} ★4×{{ c.stars[4] }} ★3×{{ c.stars[3] }}{% endif %}</div>
-                  {% if c.below_floor %}<div class="meta ov" title="pinned sessions skip the minimum">below min: {{ c.guests }} of {{ c.floor }}</div>{% endif %}
-                  <div class="card-actions">
-                    <form method="post" action="/admin/pin" hx-post="/admin/pin" hx-target="#console-main" hx-swap="outerHTML"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><input type="hidden" name="placement_id" value="{{ pl.id }}"><input type="hidden" name="pinned" value="{{ 0 if pl.pinned else 1 }}"><button class="lnk {% if pl.pinned %}pinned{% endif %}">{{ 'unpin' if pl.pinned else 'pin' }}</button></form>
-                    <form method="post" action="/admin/remove" hx-post="/admin/remove" hx-target="#console-main" hx-swap="outerHTML" hx-confirm="Remove “{{ c.p.title }}” from this round? Generate won't place it again until you restore it from the pool."><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><input type="hidden" name="proposal_id" value="{{ pl.proposal_id }}"><button class="lnk">remove</button></form>
-                    {{ place_select(ts, r, pl.proposal_id) }}
-                  </div>
+                <div class="ct">{{ c.p.title }}{% if pl.pinned %} <span class="pin-tag" title="pinned: Generate keeps it here">📌</span>{% endif %}</div>
+                <div class="meta">{{ ('host: ' ~ (c.hosts | join(', '))) if c.hosts else 'no host' }}</div>
+                {% if c.stats %}
+                <div class="bar"><i style="width:{{ [100, (100 * c.guests / c.capacity) if c.capacity else 0] | min }}%"></i></div>
+                <div class="meta">{{ c.guests }} seated / {{ c.capacity }} seats{% if c.overflow > 0 %} · <span class="ov">{{ c.overflow }} more wanted in</span>{% endif %}</div>
+                {% endif %}
+                <div class="meta" title="people besides the hosts who rated it ★3 or more">{{ c.interested }} want it{% if c.interested %}: ★5×{{ c.stars[5] }} ★4×{{ c.stars[4] }} ★3×{{ c.stars[3] }}{% endif %}</div>
+                {% if c.below_floor %}<div class="meta ov" title="pinned sessions skip the minimum">below min: {{ c.guests }} of {{ c.floor }}</div>{% endif %}
+                <div class="card-actions">
+                  <form method="post" action="/admin/pin" hx-post="/admin/pin" hx-target="#console-main" hx-swap="outerHTML"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><input type="hidden" name="placement_id" value="{{ pl.id }}"><input type="hidden" name="pinned" value="{{ 0 if pl.pinned else 1 }}"><button class="lnk {% if pl.pinned %}pinned{% endif %}">{{ 'unpin' if pl.pinned else 'pin' }}</button></form>
+                  <form method="post" action="/admin/remove" hx-post="/admin/remove" hx-target="#console-main" hx-swap="outerHTML" hx-confirm="Remove “{{ c.p.title }}” from this round? Generate won't place it again until you restore it from the pool."><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><input type="hidden" name="proposal_id" value="{{ pl.proposal_id }}"><button class="lnk">remove</button></form>
+                  {{ place_select(ts, r, pl.proposal_id) }}
                 </div>
               </td>
             {% else %}
