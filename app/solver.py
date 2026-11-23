@@ -4,7 +4,7 @@ from collections import defaultdict
 
 from ortools.sat.python import cp_model
 
-from app.types import WEIGHT, INTERESTED_STARS, ELSEWHERE, Problem, Result, PlacementOut
+from app.types import WEIGHT, INTERESTED_STARS, Problem, Result, PlacementOut
 
 MAX_TIME_S = 2.0
 
@@ -18,83 +18,40 @@ def _weight(problem: Problem, u: int, cid: int, runners: frozenset[int]) -> int:
 def build_and_solve(problem: Problem) -> Result:
     m = cp_model.CpModel()
     slots = sorted(problem.slots, key=lambda s: s.position)
-    n = len(slots)
-    idx = {s.id: i for i, s in enumerate(slots)}
     runner_of = {c.id: c.runners for c in problem.candidates}
 
-    # For each candidate, enumerate valid (start_index, room) placements and, for
-    # each, the slot ids the span covers. A start is valid iff the whole span fits
-    # and the room is available in every covered slot.
-    def spans(c):
-        out = []  # (start_slot_id, room_id, covered_slot_ids)
-        for i in range(n - c.slots_needed + 1):
-            covered = slots[i:i + c.slots_needed]
-            if not c.needs_space:
-                # no room required — placeable in any slot span that fits (ELSEWHERE)
-                out.append((covered[0].id, ELSEWHERE, [s.id for s in covered]))
-                continue
-            common_rooms = set(covered[0].rooms)
-            for s in covered[1:]:
-                common_rooms &= set(s.rooms)
-            for r in common_rooms:
-                out.append((covered[0].id, r, [s.id for s in covered]))
-        return out
-
-    place: dict[tuple[int, int, int], cp_model.IntVar] = {}  # (cid, start_slot, room)
-    covers: dict[tuple[int, int, int], list[int]] = {}
-    cand_covered_slots: dict[int, set[int]] = {c.id: set() for c in problem.candidates}
+    # place[(cid, slot, room)]: the session runs in this room in this slot
+    place: dict[tuple[int, int, int], cp_model.IntVar] = {}
     for c in problem.candidates:
-        for (start_id, room_id, covered_ids) in spans(c):
-            v = m.NewBoolVar(f"place_{c.id}_{start_id}_{room_id}")
-            place[(c.id, start_id, room_id)] = v
-            covers[(c.id, start_id, room_id)] = covered_ids
-            cand_covered_slots[c.id].update(covered_ids)
+        for s in slots:
+            for r in s.rooms:
+                place[(c.id, s.id, r)] = m.new_bool_var(f"place_{c.id}_{s.id}_{r}")
 
-    # runs_in[(cid, slot, room)] = sum of starts (of that candidate/room) covering slot
-    def runs_in(cid, slot_id, room_id):
-        terms = [place[(cid, start_id, r)]
-                 for (ccid, start_id, r), cov in covers.items()
-                 if ccid == cid and r == room_id and slot_id in cov]
-        return sum(terms) if terms else 0
+    # rooms_of[(cid, slot)] -> [(room_id, var)]: where the session could run in that slot
+    rooms_of: dict[tuple[int, int], list[tuple[int, cp_model.IntVar]]] = defaultdict(list)
+    for (cid, sid, r), v in place.items():
+        rooms_of[(cid, sid)].append((r, v))
 
-    def placed_in(cid, slot_id):
-        terms = [place[(ccid, start_id, r)]
-                 for (ccid, start_id, r), cov in covers.items()
-                 if ccid == cid and slot_id in cov]
-        return sum(terms) if terms else 0
+    def placed_in(cid: int, slot_id: int):
+        return sum(v for _, v in rooms_of[(cid, slot_id)])
 
     # fixed-grid mode: freeze every placement var to the given grid (score as-is)
     if problem.fixed is not None:
         for key, var in place.items():
-            m.Add(var == (1 if key in problem.fixed else 0))
+            m.add(var == (1 if key in problem.fixed else 0))
 
-    # run-count cap
+    # each session runs at most once
     for c in problem.candidates:
         runs = [v for (cid, _, _), v in place.items() if cid == c.id]
         if runs:
-            m.Add(sum(runs) <= (problem.repeat_cap if c.allow_repeat else 1))
+            m.add(sum(runs) <= 1)
 
-    # one session per (room, slot) — account multi-slot occupancy
+    # one session per (room, slot)
     for s in slots:
         for room_id in s.rooms:
-            occupying = [place[k] for k, cov in covers.items()
-                         if k[2] == room_id and s.id in cov]
-            if occupying:
-                m.Add(sum(occupying) <= 1)
+            m.add(sum(place[(c.id, s.id, room_id)] for c in problem.candidates) <= 1)
 
-    # A candidate with a PRESENT runner runs in at most one room per slot (the
-    # runner can't be in two rooms at once; also keeps their forced attend boolean).
-    # Runner-less repeatable sessions may fill multiple rooms in a slot (coverage).
-    for c in problem.candidates:
-        if not (runner_of[c.id] & problem.present):
-            continue
-        for s in slots:
-            pin = placed_in(c.id, s.id)
-            if not isinstance(pin, int):
-                m.Add(pin <= 1)
-
-    # attend[(u, cid, slot)] gated: interested (>=3) or runner, only on slots the
-    # candidate can cover, only for present participants.
+    # attend[(u, cid, slot)] gated: interested (>=3) or runner, only for present people
     attend: dict[tuple[int, int, int], cp_model.IntVar] = {}
     for c in problem.candidates:
         for u in problem.present:
@@ -102,14 +59,20 @@ def build_and_solve(problem: Problem) -> Result:
             is_runner = u in runner_of[c.id]
             if not (interested or is_runner):
                 continue
-            for slot_id in cand_covered_slots[c.id]:
-                v = m.NewBoolVar(f"att_{u}_{c.id}_{slot_id}")
-                attend[(u, c.id, slot_id)] = v
-                p_in = placed_in(c.id, slot_id)
+            for s in slots:
+                if not rooms_of[(c.id, s.id)]:
+                    continue
+                v = m.new_bool_var(f"att_{u}_{c.id}_{s.id}")
+                attend[(u, c.id, s.id)] = v
                 if is_runner:
-                    m.Add(v == p_in)   # runner present exactly when their session runs
+                    m.add(v == placed_in(c.id, s.id))   # runner present exactly when it runs
                 else:
-                    m.Add(v <= p_in)
+                    m.add(v <= placed_in(c.id, s.id))
+
+    def attending(cid: int, slot_id: int, *, include_runners: bool = True):
+        return [attend[(u, cid, slot_id)] for u in problem.present
+                if (u, cid, slot_id) in attend
+                and (include_runners or u not in runner_of[cid])]
 
     # one place per person per slot
     for u in problem.present:
@@ -117,83 +80,55 @@ def build_and_solve(problem: Problem) -> Result:
             here = [attend[(u, c.id, s.id)] for c in problem.candidates
                     if (u, c.id, s.id) in attend]
             if here:
-                m.Add(sum(here) <= 1)
+                m.add(sum(here) <= 1)
 
-    # hard seat cap (non-runners) so coverage cannot exceed the placed room's seats
+    # hard seat cap (non-runners) so attendance cannot exceed the placed room's seats
     for c in problem.candidates:
-        if not c.needs_space:
-            continue   # elsewhere sessions have no room cap (only the host max, below)
         for s in slots:
-            non_runner = [attend[(u, c.id, s.id)] for u in problem.present
-                          if (u, c.id, s.id) in attend and u not in runner_of[c.id]]
-            if not non_runner:
-                continue
-            cap_sum = sum(problem.rooms_for(s.id)[r] * runs_in(c.id, s.id, r)
-                          for r in problem.rooms_for(s.id))
-            m.Add(sum(non_runner) <= cap_sum)
+            non_runner = attending(c.id, s.id, include_runners=False)
+            if non_runner:
+                m.add(sum(non_runner) <= sum(s.rooms[r] * v for r, v in rooms_of[(c.id, s.id)]))
 
-    # host's per-session seat cap: never *seat* (count as attending) more people than
-    # the host allows — effective cap = min(room seats, this). We don't penalize a
-    # popular session for being capped; the overflow people are routed to their
-    # next-best session by the coverage objective. Runners always fit, so a too-small
-    # cap can never make a session impossible to place.
+    # host's per-session seat cap: never seat more people than the host allows.
+    # Overflow people are routed to their next-best session by the coverage objective.
+    # Runners always fit, so a too-small cap can never make a session impossible.
     for c in problem.candidates:
         if c.max_attendees is None:
             continue
-        n_runners = sum(1 for u in problem.present if u in runner_of[c.id])
-        cap = max(c.max_attendees, n_runners)
+        cap = max(c.max_attendees, sum(1 for u in problem.present if u in runner_of[c.id]))
         for s in slots:
-            here = [attend[(u, c.id, s.id)] for u in problem.present
-                    if (u, c.id, s.id) in attend]
+            here = attending(c.id, s.id)
             if here:
-                m.Add(sum(here) <= cap)
+                m.add(sum(here) <= cap)
 
     # uncovered[(u, slot)] >= 1 - sum_c attend
     uncovered: dict[tuple[int, int], cp_model.IntVar] = {}
     for u in problem.present:
         for s in slots:
-            uv = m.NewBoolVar(f"unc_{u}_{s.id}")
+            uv = m.new_bool_var(f"unc_{u}_{s.id}")
             uncovered[(u, s.id)] = uv
             here = [attend[(u, c.id, s.id)] for c in problem.candidates
                     if (u, c.id, s.id) in attend]
-            m.Add(uv >= 1 - sum(here)) if here else m.Add(uv == 1)
+            m.add(uv >= 1 - sum(here)) if here else m.add(uv == 1)
 
     # pins (validated): fix place==1 where the key exists, else report conflict
     pin_conflicts: list[tuple[int, int, int]] = []
-    for (cid, sid, rid) in problem.pins:
-        if (cid, sid, rid) in place:
-            m.Add(place[(cid, sid, rid)] == 1)
+    for key in problem.pins:
+        if key in place:
+            m.add(place[key] == 1)
         else:
-            pin_conflicts.append((cid, sid, rid))
+            pin_conflicts.append(key)
 
-    # objective: satisfied weighted interest - lambda * uncovered + force-run bonus.
-    # MUST_RUN_BONUS is large so a must-run session is placed whenever a slot is
-    # free, but it's a bonus (not a hard constraint) so the model never goes
-    # infeasible if there's genuinely no room for it.
-    MUST_RUN_BONUS = 100_000
+    # objective: satisfied weighted interest - lambda * uncovered
     interest_terms = [_weight(problem, u, cid, runner_of[cid]) * v
                       for (u, cid, sid), v in attend.items()]
-    # Reward a must-run session for running AT LEAST ONCE — not per placed cell.
-    # Per-cell scaling let a must_run + allow_repeat session farm the bonus by
-    # grabbing every legal room/slot, starving real coverage.
-    must_run_ids = {c.id for c in problem.candidates if c.must_run}
-    must_run_terms = []
-    for cid in must_run_ids:
-        places_c = [v for (ccid, _s, _r), v in place.items() if ccid == cid]
-        if not places_c:
-            continue
-        ran = m.NewBoolVar(f"ran_{cid}")
-        m.AddMaxEquality(ran, places_c)   # ran == 1 iff placed at least once
-        must_run_terms.append(MUST_RUN_BONUS * ran)
-    lam_i = int(round(problem.lam))
-    m.Maximize(sum(interest_terms) - lam_i * sum(uncovered.values())
-               + sum(must_run_terms))
+    m.maximize(sum(interest_terms) - int(round(problem.lam)) * sum(uncovered.values()))
 
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = MAX_TIME_S
     solver.parameters.random_seed = 1
     solver.parameters.num_search_workers = 1
-    status = solver.Solve(m)
+    status = solver.solve(m)
     ok = status in (cp_model.OPTIMAL, cp_model.FEASIBLE)
     status_name = {cp_model.OPTIMAL: "OPTIMAL",
                    cp_model.FEASIBLE: "FEASIBLE"}.get(status, "INFEASIBLE")
@@ -202,12 +137,9 @@ def build_and_solve(problem: Problem) -> Result:
     n_runners_of = {c.id: sum(1 for u in problem.present if u in runner_of[c.id])
                     for c in problem.candidates}
 
-    def cell_cap(cid, slot_id, room_id):
-        """Effective seats for one cell. ELSEWHERE has no room cap; the host max,
-        if set, binds the TOTAL (runners always fit, matching the solver's
-        `max(max_attendees, n_runners)`). 0 means uncapped."""
-        if room_id == ELSEWHERE:
-            return max_of.get(cid) or 0
+    def cell_cap(cid: int, slot_id: int, room_id: int) -> int:
+        """Effective seats for one cell: the room, lowered by the host max if set
+        (runners always fit, matching the solver's `max(max_attendees, n_runners)`)."""
         cap = problem.rooms_for(slot_id)[room_id]
         if max_of.get(cid) is not None:
             cap = min(cap, max(max_of[cid], n_runners_of[cid]))
@@ -215,42 +147,21 @@ def build_and_solve(problem: Problem) -> Result:
 
     placements: list[PlacementOut] = []
     total_interest = 0
+    seated: set[tuple[int, int]] = set()
     if ok:
-        placed_cells = [(cid, s_id, r_id) for (cid, s_id, r_id), v in place.items()
-                        if solver.Value(v) == 1]
-        # Attendance is modeled per (user, candidate, slot) — NOT per room — so stats
-        # are aggregated per (candidate, slot): one figure shown per session-in-slot,
-        # never double-counted across a repeated session's rooms.
-        group_cap: dict[tuple[int, int], int] = {}
-        group_unlimited: dict[tuple[int, int], bool] = {}
-        for (cid, start_id, room_id) in placed_cells:
-            for slot_id in covers[(cid, start_id, room_id)]:
-                cap = cell_cap(cid, slot_id, room_id)
-                key = (cid, slot_id)
-                if cap == 0 and room_id == ELSEWHERE:
-                    group_unlimited[key] = True
-                group_cap[key] = group_cap.get(key, 0) + cap
-        for (cid, start_id, room_id) in placed_cells:
+        for (cid, slot_id, room_id), v in place.items():
+            if solver.value(v) != 1:
+                continue
             demand = sum(1 for u in problem.present
                          if problem.stars.get((u, cid), 0) >= INTERESTED_STARS
                          or u in runner_of[cid])
-            for slot_id in covers[(cid, start_id, room_id)]:
-                key = (cid, slot_id)
-                seated = sum(solver.Value(attend[(u, cid, slot_id)]) for u in problem.present
-                             if (u, cid, slot_id) in attend)
-                unlimited = group_unlimited.get(key, False)
-                tcap = group_cap.get(key, 0)
-                cap_display = 0 if unlimited else tcap
-                overflow = 0 if (unlimited or not tcap) else max(0, demand - tcap)
-                placements.append(PlacementOut(
-                    candidate_id=cid, slot_id=slot_id, room_id=room_id,
-                    projected_attendance=seated, capacity=cap_display, overflow=overflow))
-        # satisfied interest = each person's weight for a session they attend,
-        # counted ONCE even if that session spans multiple slots (no double count).
-        seated = {(u, cid) for (u, cid, sid), var in attend.items()
-                  if solver.Value(var) == 1}
-        total_interest = sum(_weight(problem, u, cid, runner_of[cid])
-                             for (u, cid) in seated)
+            cap = cell_cap(cid, slot_id, room_id)
+            placements.append(PlacementOut(
+                candidate_id=cid, slot_id=slot_id, room_id=room_id,
+                projected_attendance=sum(solver.value(a) for a in attending(cid, slot_id)),
+                capacity=cap, overflow=max(0, demand - cap)))
+        seated = {(u, cid) for (u, cid, _sid), var in attend.items() if solver.value(var) == 1}
+        total_interest = sum(_weight(problem, u, cid, runner_of[cid]) for (u, cid) in seated)
 
     # % of present people who got into one of their MOST preferred (max-star) sessions
     top_choice_pct = 0.0
@@ -279,7 +190,7 @@ def build_and_solve(problem: Problem) -> Result:
     n_present = max(1, len(problem.present))
     for s in slots:
         unc_here = sorted(u for u in problem.present
-                          if ok and solver.Value(uncovered[(u, s.id)]) == 1)
+                          if ok and solver.value(uncovered[(u, s.id)]) == 1)
         left_out[s.id] = unc_here
         coverage_pct[s.id] = round(
             100.0 * (len(problem.present) - len(unc_here)) / n_present, 1)

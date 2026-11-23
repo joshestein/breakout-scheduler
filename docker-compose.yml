@@ -14,7 +14,6 @@ services:
       DB_PATH: /data/app.db
       BACKUP_DIR: /data/backups
       BACKUP_INTERVAL_S: "300"
-      PREVIEW_INTERVAL_S: "3"
       # Optional: require this code to create the FIRST event, then it's disabled.
       BOOTSTRAP_ADMIN_CODE: "${BOOTSTRAP_ADMIN_CODE:-}"
       # Set to 1 only for a schema-changing redeploy (runs Alembic; back up first).

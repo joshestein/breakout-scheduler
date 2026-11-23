@@ -65,51 +65,6 @@ def test_host_max_routes_overflow_to_next_best():
     assert not r.left_out.get(1)       # everyone still has somewhere to be
 
 
-def test_elsewhere_session_needs_no_room_and_is_uncapped():
-    # one tiny room (cap 1) but the session needs no space — everyone can attend it.
-    p = Problem(
-        slots=[Slot(id=1, position=0, rooms={10: 1})],
-        candidates=[Candidate(id=100, runners=frozenset(), needs_space=False)],
-        present=frozenset({1, 2, 3, 4, 5}),
-        stars={(u, 100): 5 for u in range(1, 6)},
-        lam=0.0, min_interest=1,
-    )
-    r = build_and_solve(p)
-    assert r.status in ("OPTIMAL", "FEASIBLE")
-    cell = r.placements[0]
-    assert cell.room_id == 0            # ELSEWHERE sentinel
-    assert cell.projected_attendance == 5   # uncapped (room cap 1 ignored)
-    assert cell.overflow == 0
-
-
-def test_two_elsewhere_sessions_share_one_slot():
-    # no rooms at all, two roomless sessions — both can run in the same slot.
-    p = Problem(
-        slots=[Slot(id=1, position=0, rooms={})],
-        candidates=[Candidate(id=100, runners=frozenset(), needs_space=False),
-                    Candidate(id=200, runners=frozenset(), needs_space=False)],
-        present=frozenset({1, 2, 3, 4}),
-        stars={**{(u, 100): 5 for u in (1, 2)}, **{(u, 200): 5 for u in (3, 4)}},
-        lam=0.0, min_interest=1,
-    )
-    r = build_and_solve(p)
-    placed = {pl.candidate_id for pl in r.placements}
-    assert placed == {100, 200}        # both ran despite zero rooms
-
-
-def test_elsewhere_respects_host_max():
-    p = Problem(
-        slots=[Slot(id=1, position=0, rooms={})],
-        candidates=[Candidate(id=100, runners=frozenset(), needs_space=False, max_attendees=2)],
-        present=frozenset({1, 2, 3, 4, 5}),
-        stars={(u, 100): 5 for u in range(1, 6)},
-        lam=0.0, min_interest=1,
-    )
-    r = build_and_solve(p)
-    assert r.placements[0].projected_attendance <= 2
-    assert r.placements[0].capacity == 2
-
-
 def test_cap_below_runner_count_floors_to_runners():
     # host caps at 1 but 3 co-runners must be present — the cap floors up to the
     # runner count so the session stays placeable and all runners are seated.

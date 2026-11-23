@@ -194,7 +194,7 @@
       var x = e.detail && e.detail.xhr, msg = "Something went wrong — please try again.";
       if (x && x.status === 429) msg = "You're going a bit fast — wait a moment and retry.";
       else if (x && x.status === 403) msg = "That action isn't allowed.";
-      else if (x && x.status === 400) {
+      else if (x && x.status >= 400 && x.status < 500) {
         try { var d = JSON.parse(x.responseText); if (d && d.detail) msg = d.detail; } catch (_) {}
       }
       toast(msg);

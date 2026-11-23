@@ -48,7 +48,6 @@ class Settings:
     db_path: str
     backup_dir: str
     backup_interval_s: int
-    preview_interval_s: int
     bootstrap_admin_code: str | None
     cookie_secure: bool = False
     base_url: str = ""  # canonical public origin for share links (else derived from request)
@@ -72,7 +71,6 @@ def load_settings() -> Settings:
         db_path=db_path,
         backup_dir=os.environ.get("BACKUP_DIR", "data/backups"),
         backup_interval_s=int(os.environ.get("BACKUP_INTERVAL_S", "300")),
-        preview_interval_s=int(os.environ.get("PREVIEW_INTERVAL_S", "3")),
         bootstrap_admin_code=os.environ.get("BOOTSTRAP_ADMIN_CODE") or None,
         # Behind TLS-terminating proxies (Cloudflare Tunnel) the app sees http,
         # so set COOKIE_SECURE=1 in production to force Secure cookies.

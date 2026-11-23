@@ -27,8 +27,8 @@ def test_alembic_upgrade_head_on_fresh_db():
         cols = {c["name"] for c in inspect(create_engine(f"sqlite:///{db}"))
                 .get_columns("proposals")}
         # columns added across the migration chain are all present
-        assert {"round_id", "min_interest_override", "max_attendees",
-                "anonymous", "must_run"} <= cols
+        assert {"round_id", "min_interest_override", "max_attendees"} <= cols
+        assert not {"anonymous", "must_run", "allow_repeat", "needs_space"} & cols
 
 
 def test_migrated_schema_matches_create_all():
@@ -56,7 +56,7 @@ def test_fresh_file_db_is_stamped_at_head(tmp_path):
 
     db = str(tmp_path / "fresh.db")
     create_app(Settings(secret_key="k", db_path=db, backup_dir=str(tmp_path),
-                        backup_interval_s=9999, preview_interval_s=9999,
+                        backup_interval_s=9999,
                         bootstrap_admin_code=None))
     head = ScriptDirectory.from_config(_alembic_cfg(db)).get_current_head()
     with create_engine(f"sqlite:///{db}").connect() as c:
