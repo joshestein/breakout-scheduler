@@ -65,3 +65,5 @@ class Result:
     pin_conflicts: list[tuple[int, int, int]] = field(default_factory=list)
     # % of present people seated in (one of) their highest-rated session(s)
     top_choice_pct: float = 0.0
+    # (participant_id, slot_id) -> candidate_id: where the solver seated each person
+    assignments: dict[tuple[int, int], int] = field(default_factory=dict)
