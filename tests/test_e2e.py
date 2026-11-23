@@ -43,7 +43,7 @@ def test_full_lifecycle(app):
         room_ids = [rm.id for rm in rooms]
 
     # create round + one timeslot exposing both rooms
-    _post(admin, "/admin/round", csrf, {"name": "Block 1", "lambda_fairness": 12, "min_interest": 1})
+    _post(admin, "/admin/round", csrf, {"name": "Block 1", "min_interest": 1})
     with sf() as s:
         rnd = s.scalar(select(Round))
     admin.post("/admin/timeslot", headers={"X-CSRFToken": csrf},
@@ -58,22 +58,23 @@ def test_full_lifecycle(app):
         _post(c, "/enter", csrf, {"code": "party", "name": name})
         return c
 
-    a, b, cc = participant("Alice"), participant("Bob"), participant("Cara")
+    a, b, cc, d = participant("Alice"), participant("Bob"), participant("Cara"), participant("Dan")
     _post(a, "/propose", csrf, {"title": "AI safety"})
     _post(b, "/propose", csrf, {"title": "Governance"})
     with sf() as s:
         props = {p.title: p.id for p in s.scalars(select(Proposal))}
-    # Alice & Cara want AI safety (5), Bob wants Governance (5)
+    # Cara wants AI safety (Alice hosts), Dan wants Governance (Bob hosts)
     _post(a, "/rate", csrf, {"proposal_id": props["AI safety"], "stars": 5})
     _post(cc, "/rate", csrf, {"proposal_id": props["AI safety"], "stars": 5})
     _post(b, "/rate", csrf, {"proposal_id": props["Governance"], "stars": 5})
+    _post(d, "/rate", csrf, {"proposal_id": props["Governance"], "stars": 5})
 
     # solve & publish
     _post(admin, "/admin/solve", csrf, {"round_id": rnd.id})
     with sf() as s:
         from app.models import Placement
         placed = s.scalars(select(Placement)).all()
-        # both rooms available, high lambda -> both sessions run so everyone covered
+        # both rooms available -> both sessions run so everyone is covered
         assert len({p.proposal_id for p in placed}) == 2
 
     r = _post(admin, "/admin/publish", csrf, {"round_id": rnd.id})
@@ -112,7 +113,7 @@ def test_cross_event_idor_blocked(app):
     adminA = TestClient(app)
     _post(adminA, "/events", csrf, {"name": "A", "participant_code": "pa", "admin_code": "aa",
                                     "admin_name": "OrgA", "rooms": "R, 10"})
-    _post(adminA, "/admin/round", csrf, {"name": "RA", "lambda_fairness": 3, "min_interest": 1})
+    _post(adminA, "/admin/round", csrf, {"name": "RA", "min_interest": 1})
     partA = TestClient(app)
     _post(partA, "/enter", csrf, {"code": "pa", "name": "Ann"})
     _post(partA, "/propose", csrf, {"title": "Secret A topic"})
@@ -195,7 +196,7 @@ def test_htmx_partial_and_diagnostics(app):
     admin = TestClient(app)
     _post(admin, "/events", csrf, {"name": "R", "participant_code": "p", "admin_code": "a",
                                    "admin_name": "Org", "rooms": "Library, 10"})
-    _post(admin, "/admin/round", csrf, {"name": "B1", "lambda_fairness": 5, "min_interest": 1})
+    _post(admin, "/admin/round", csrf, {"name": "B1", "min_interest": 1})
     with app.state.session_factory() as s:
         rid = s.scalar(select(Round)).id
         room_id = s.scalar(select(Room)).id
@@ -598,3 +599,39 @@ def test_bad_csrf_rejected(app):
     resp = admin.post("/events", data={"name": "X", "participant_code": "p",
                                        "admin_code": "a"}, headers={"X-CSRFToken": "bogus"})
     assert resp.status_code == 400
+
+
+def test_archive_shows_fill_for_snapshots_before_rename(app):
+    # snapshots published before seated_guests existed store projected_attendance
+    import json
+    csrf = _csrf(TestClient(app)); admin = TestClient(app)
+    _post(admin, "/events", csrf, {"name": "R", "participant_code": "p", "admin_code": "a",
+                                   "admin_name": "Org", "rooms": "Lib, 10"})
+    _post(admin, "/admin/round", csrf, {"name": "R1"})
+    sf = app.state.session_factory
+    with sf() as s:
+        s.add(RoundSnapshot(round_id=app_round_id(sf), stats_json='{"total_interest": 0}',
+                            grid_json=json.dumps([{
+                                "timeslot": "14:00", "room": "Lib", "title": "Old",
+                                "projected_attendance": 7, "capacity": 10, "overflow": 0}])))
+        s.commit()
+    assert "7/10" in admin.get("/admin/archive").text
+
+
+def test_console_badge_uses_clamped_floor(app):
+    # round minimum 2, host caps the workshop at 1 guest, 1 guest is keen: it can run,
+    # so the console must not say "won't run"
+    csrf = _csrf(TestClient(app)); admin = TestClient(app)
+    _post(admin, "/events", csrf, {"name": "R", "participant_code": "p", "admin_code": "a",
+                                   "admin_name": "Org", "rooms": "Lib, 10"})
+    _post(admin, "/admin/round", csrf, {"name": "R1"})
+    sf = app.state.session_factory
+    rid = app_round_id(sf)
+    host = TestClient(app); _post(host, "/enter", csrf, {"code": "p", "name": "Host"})
+    _post(host, "/propose", csrf, {"title": "Tiny", "max_attendees": "1"})
+    with sf() as s:
+        pid = s.scalar(select(Proposal).where(Proposal.title == "Tiny")).id
+    guest = TestClient(app); _post(guest, "/enter", csrf, {"code": "p", "name": "Guest"})
+    _post(guest, "/rate", csrf, {"proposal_id": pid, "stars": 5})
+    html = admin.get(f"/admin?round_id={rid}").text
+    assert "Tiny" in html and "won't run" not in html

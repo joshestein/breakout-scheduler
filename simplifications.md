@@ -43,21 +43,20 @@ Ranked by effect on a 30-person retreat.
 
 | # | Problem | Evidence | Fix |
 |---|---|---|---|
-| 1 | **Sessions with only the host.** Every proposer is a host with weight 9, so the solver fills spare rooms with sessions that nobody else wants. It also takes the host away from a session they wanted. | Probe: a spare room plus a session with no ratings gives a session with 1 person. In a 30-person test, 2 of 20 sessions seated 2 people or fewer. | Give the host weight 0 in the objective. Add a rule: a session runs only if at least N people other than the host are seated. |
-| 2 | **Strong ratings win.** One "must" (9) is worth nine "maybe"s (1 each). A person who rates everything 5 has 9 times the effect of a careful rater. | At λ=0, 1 person with a "must" beats 9 people with a "maybe". | Normalize ratings per person, or use flatter weights (for example 1/2/3). |
-| 3 | **Minimum attendance checks ratings, not seats.** | `app/solver_input.py`: `interested_count` counts ratings of 3 or more. The solver has no seat minimum. | Add a rule: if a session runs, at least `min` people are seated. |
+| 1 | **Fixed:** sessions with only the host. A host now gets 0 points for their own session, and a session runs only if at least N people besides its hosts are seated. | `tests/test_solver_rules.py` | |
+| 2 | **Fixed:** strong ratings won. Points are now ★3 = 1, ★4 = 2, ★5 = 3, and coverage comes before points. | `tests/test_types.py` | Check with real ratings from a retreat. |
+| 3 | **Fixed:** minimum attendance checked ratings, not seats. The solver now requires the seats. | `tests/test_solver_rules.py::test_floor_counts_seated_guests_not_ratings` | |
 | 4 | **"Publish" leaks the draft.** The published grid is a snapshot, but the "copy as markdown" text is built from the live draft. That text is on `/s/{code}` and `/published`. | `tests/test_e2e.py::test_published_view_frozen_until_republish` fails. It failed before these cuts too. | Build the Markdown from the snapshot on attendee pages. |
-| 5 | **Fixed:** Generate emptied the grid when the solver found no solution. `apply_result` now refuses a result that is not OK, and the admin sees an error. | `tests/test_services.py::test_apply_result_rejects_infeasible_and_keeps_grid` | Still open: set `num_search_workers=8`. |
-| 6 | **A session runs with no host if the host is marked absent.** | `app/solver_input.py` drops absent hosts but keeps the session. | Do not schedule a session if all its hosts are absent. |
+| 5 | **Fixed:** Generate emptied the grid when the solver found no solution. `apply_result` now refuses a result that is not OK, and the admin sees an error. | `tests/test_services.py::test_apply_result_rejects_infeasible_and_keeps_grid` | |
+| 6 | **Fixed:** a session ran with no host if the host was marked absent. Now it does not run. | `tests/test_services.py::test_set_present_drops_runner_from_solve` | |
 | 7 | **Coverage hides people who did not rate.** A "maybe" counts as covered. | `app/solver_input.py`: `present` includes only people who rated a session 3 or higher, or host one. | Show the non-raters. Show coverage as "N of M people". |
-| 8 | **Ties depend on proposal order.** | Probe: with identical ratings, the last proposal in the list wins. | Break ties on purpose: more people interested first, then the earlier proposal. |
+| 8 | **Fixed:** ties depended on proposal order by accident. Now the earlier proposal wins on purpose. | `tests/test_solver_rules.py::test_tie_goes_to_earlier_proposal` | |
 | 9 | **The README install command fails.** `pip install -e ".[dev]"` gives a setuptools "multiple top-level packages" error. | Tested. | Set `[tool.setuptools] packages` in `pyproject.toml`, or tell people to install with `uv pip install -r`. |
 | 10 | **Anyone can create events after the first one. Event codes are not unique.** | `app/routers/events.py` `create_event`. No unique constraint on codes. | Accepted for now. |
 | 11 | **Identity is the display name only.** Two people with the same name share one account. | `app/routers/events.py` `enter`. | Accepted for now. |
 
 ## Next steps
 
-1. Rewrite `app/solver.py` with attendance per session, a minimum seat count, and host weight 0 (problems 1, 3, 6).
-2. Add invariant tests on simulated 30-person data. For every generated schedule, check these rules: nobody attends a session twice, no session has only its host, every running session has its host, and seats are not more than capacity.
-3. Fix problems 4, 5 and 9.
-4. Decide on the rating weights (problem 2) with real ratings from the retreat.
+1. Admin UI: explain each card and each unplaced session, make "remove" sticky, cut unused controls, and show results in people, not points.
+2. Fix problems 4 and 9.
+3. Check the rating points (problem 2) with real ratings from a retreat.

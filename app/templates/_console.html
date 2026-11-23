@@ -26,10 +26,7 @@
           <form method="post" action="/admin/round" hx-post="/admin/round" class="stack">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input name="name" placeholder="Round name" required>
-            <div class="grid2">
-              <label class="tiny">λ fairness<input name="lambda_fairness" type="number" step="0.5" value="3"></label>
-              <label class="tiny">min interest<input name="min_interest" type="number" value="1" min="0"></label>
-            </div>
+            <label class="tiny">min people per session<input name="min_interest" type="number" value="2" min="1"></label>
             <button class="btn small">create</button>
           </form>
         </details>
@@ -47,21 +44,14 @@
       <form method="post" action="/admin/round-settings" hx-post="/admin/round-settings" class="settings">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="round_id" value="{{ rnd.id }}">
-        <label class="slider">Balance = <output>{{ rnd.lambda_fairness | int }}</output>
-          <input name="lambda_fairness" type="range" min="0" max="20" step="1" value="{{ rnd.lambda_fairness }}"
-                 oninput="this.previousElementSibling.value=this.value">
-          <span class="ends"><i>← run the favourites</i><i>cover everyone →</i></span>
-        </label>
-        <p class="explain">
-          {% if rnd.lambda_fairness < 3 %}Running the <b>most-wanted</b> sessions, even if some people end up with nothing to attend.
-          {% elif rnd.lambda_fairness <= 10 %}<b>Balanced:</b> prefer popular sessions, but add a less-popular one if it gives a stranded person something.
-          {% else %}<b>Spreading out:</b> make sure almost everyone has something each slot, even if it means running niche sessions.{% endif %}
-        </p>
-        <details class="mini"><summary>how does this work?</summary>
-          <p class="explain">The schedule maximises <b>how much people want the sessions that run</b>, minus this dial × <b>how many people are left with nothing they'd attend</b> in a slot. Slide right to weigh "nobody left out" more heavily; slide left to just chase popularity. The right-hand panel lists exactly who'd be left out.</p>
+        <details class="mini"><summary>how does Generate choose?</summary>
+          <p class="explain">1. Leave as few people as possible with nothing to attend in a slot.<br>
+            2. Then seat people in sessions they rated highly: ★3 = 1 point, ★4 = 2, ★5 = 3. Hosts get no points for their own session.<br>
+            3. On a tie, the earlier proposal wins.<br>
+            A session runs only if at least the minimum below of people <b>other than its hosts</b> are seated. Pinned sessions skip this rule.</p>
         </details>
-        <label class="tiny">min interest to run <input name="min_interest" type="number" value="{{ rnd.min_interest }}" min="0"></label>
-        <span class="muted tiny">= people who'd attend (★3 “maybe” or more) needed before a session is scheduled.</span>
+        <label class="tiny">min people per session <input name="min_interest" type="number" value="{{ rnd.min_interest }}" min="1"></label>
+        <span class="muted tiny">= people besides the hosts who must be seated for a session to run. A proposer can set their own number.</span>
         <button class="btn small">apply</button>
       </form>
     </div>
@@ -75,11 +65,10 @@
         <button class="btn small">add</button>
       </form>
       {% for x in pool %}
-      {% set eff = x.p.min_interest_override if x.p.min_interest_override is not none else rnd.min_interest %}
       <div class="pool-item">
         <div class="pi-title"><span class="pi-name">{{ x.p.title }}</span>
           {% if x.p.max_attendees %}<span class="badge2" title="host caps at {{ x.p.max_attendees }} attendees">cap {{ x.p.max_attendees }}</span>{% endif %}
-          {% if x.interested < eff %}<span class="below" title="needs ≥{{ eff }} interested to be scheduled">won't run</span>{% endif %}
+          {% if not x.eligible %}<span class="below" title="{% if x.hosts_away %}all its hosts are marked away{% else %}needs {{ x.floor }} interested people besides its hosts (present, ★3+) to run{% endif %}">won't run</span>{% endif %}
         </div>
         <div class="pi-agg">
           <span class="pill">♥ {{ x.interested }}</span>
@@ -288,7 +277,7 @@
       {% elif diag.n_proposals == 0 %}
         <div class="diag ok">✓ Board ready. Now add sessions (left rail) or have people propose &amp; rate at the participant link.</div>
       {% elif diag.n_eligible == 0 %}
-        <div class="diag warn">⚠ <b>No sessions are eligible yet.</b> {{ diag.n_proposals }} proposed · {{ diag.n_rated }} {{ 'person has' if diag.n_rated == 1 else 'people have' }} rated, but none reached the interest bar (≥{{ rnd.min_interest }} people at ★3+). Get ratings, lower “min interest”, or place a session by hand.</div>
+        <div class="diag warn">⚠ <b>No sessions are eligible yet.</b> {{ diag.n_proposals }} proposed · {{ diag.n_rated }} {{ 'person has' if diag.n_rated == 1 else 'people have' }} rated, but none has enough interested people besides its hosts (★3+). Get ratings, lower “min people per session”, or place a session by hand.</div>
       {% elif diag.n_placed == 0 %}
         <div class="diag ok">✓ <b>{{ diag.n_eligible }}</b> eligible session{{ 's' if diag.n_eligible != 1 }} — click <b>⚙ Generate</b>.</div>
       {% else %}

@@ -85,8 +85,8 @@ class Round(Base):
     event_id: Mapped[int] = mapped_column(ForeignKey("events.id"), index=True)
     name: Mapped[str] = mapped_column(String(200))
     status: Mapped[str] = mapped_column(String(20), default="collecting")  # draft|collecting|published|archived
-    lambda_fairness: Mapped[float] = mapped_column(Float, default=3.0)
-    min_interest: Mapped[int] = mapped_column(Integer, default=1)
+    lambda_fairness: Mapped[float] = mapped_column(Float, default=3.0)  # unused; kept to avoid a migration
+    min_interest: Mapped[int] = mapped_column(Integer, default=2)  # min seated non-hosts
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 

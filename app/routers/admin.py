@@ -11,6 +11,7 @@ from app.models import (Event, Participant, Proposal, ProposalRunner, Rating, Ro
 from app.types import INTERESTED_STARS
 from app.deps import get_session, require_admin, require_csrf, load_participant
 from app.render import render
+from app.solver_input import eligibility
 from app.scoping import (owned_round, owned_proposal, owned_timeslot, owned_placement,
                         owned_participant, owned_room, room_in_timeslot)
 from app.services import proposals as P
@@ -43,15 +44,15 @@ def _current_round(session: Session, event_id: int, round_id: int | None) -> Rou
 
 
 def _agg(session: Session, proposal_id: int) -> dict:
+    """Rating histogram for display. The interested count and eligibility come from
+    `app.solver_input.eligibility`, so they match what Generate does."""
     rows = session.scalars(select(Rating).where(Rating.proposal_id == proposal_id)).all()
     hist = [0, 0, 0, 0, 0]
     for r in rows:
         hist[r.stars - 1] += 1
-    interested = sum(h for s, h in zip(range(1, 6), hist) if s >= INTERESTED_STARS)
     avg = round(sum(r.stars for r in rows) / len(rows), 1) if rows else 0
     # interest is shown to the organizer regardless of rater count (per request)
-    return {"interested": interested, "avg": avg, "hist": hist,
-            "n_raters": len(rows), "suppressed": False}
+    return {"avg": avg, "hist": hist, "n_raters": len(rows), "suppressed": False}
 
 
 def _eval_fingerprint(session: Session, rnd: Round) -> tuple:
@@ -81,7 +82,7 @@ def _eval_fingerprint(session: Session, rnd: Round) -> tuple:
     present_fp = rows([(x.participant_id, x.present) for x in session.scalars(
         select(RoundParticipant).where(RoundParticipant.round_id == rnd.id))])
     ts_fp = rows([(t.id, t.position, t.duration_minutes) for t in ts])
-    return (rnd.lambda_fairness, rnd.min_interest, ts_fp, tr, rooms_fp,
+    return (rnd.min_interest, ts_fp, tr, rooms_fp,
             props_fp, pls_fp, ratings_fp, runners_fp, present_fp)
 
 
@@ -96,7 +97,10 @@ def _context(request: Request, session: Session, event: Event, rnd: Round | None
     names = {u.id: u.display_name for u in session.scalars(
         select(Participant).where(Participant.event_id == event.id))}
 
-    pool = [{"p": p, "by": names.get(p.created_by), **_agg(session, p.id)}
+    elig = eligibility(session, rnd.id) if rnd else {}
+    pool = [{"p": p, "by": names.get(p.created_by), **_agg(session, p.id),
+             "interested": elig[p.id].interested, "floor": elig[p.id].floor,
+             "hosts_away": elig[p.id].hosts_away, "eligible": elig[p.id].eligible}
             for p in proposals]
     pool.sort(key=lambda x: (-x["interested"], x["p"].id))
 
@@ -180,7 +184,7 @@ def _context(request: Request, session: Session, event: Event, rnd: Round | None
         rated_count = session.scalar(select(func.count(func.distinct(Rating.participant_id)))
                                      .where(Rating.proposal_id.in_(prop_ids))) or 0
 
-    n_eligible = sum(1 for x in pool if x["interested"] >= rnd.min_interest)
+    n_eligible = sum(1 for x in pool if x["eligible"])
     slot_no_rooms = [ts.name for ts in timeslots if not ts_rooms[ts.id]]
     diag = {
         "has_timeslots": bool(timeslots),
@@ -325,12 +329,12 @@ def proposal_edit(request: Request, round_id: int = Form(...), proposal_id: int 
 
 
 @router.post("/round")
-def add_round(request: Request, name: str = Form(...), lambda_fairness: float = Form(3.0, ge=0, le=1000),
-              min_interest: int = Form(1, ge=0), token=Depends(require_admin),
+def add_round(request: Request, name: str = Form(...),
+              min_interest: int = Form(2, ge=1), token=Depends(require_admin),
               session: Session = Depends(get_session), _: None = Depends(require_csrf)):
     event = _event_of(session, token)
     rnd = RD.create_round(session, event_id=event.id, name=name.strip(),
-                          lambda_fairness=lambda_fairness, min_interest=min_interest)
+                          min_interest=min_interest)
     session.flush()
     return _respond(request, session, event, rnd.id)
 
@@ -395,13 +399,11 @@ def session_config(request: Request, round_id: int = Form(...), proposal_id: int
 
 @router.post("/round-settings")
 def round_settings(request: Request, round_id: int = Form(...),
-                   lambda_fairness: float = Form(..., ge=0, le=1000),
-                   min_interest: int = Form(..., ge=0),
+                   min_interest: int = Form(..., ge=1),
                    token=Depends(require_admin), session: Session = Depends(get_session),
                    _: None = Depends(require_csrf)):
     event = _event_of(session, token)
     rnd = owned_round(session, round_id, event.id)
-    rnd.lambda_fairness = lambda_fairness
     rnd.min_interest = min_interest
     session.flush()
     return _respond(request, session, event, round_id)
@@ -414,12 +416,12 @@ def solve(request: Request, round_id: int = Form(...), pin_started: int = Form(1
           token=Depends(require_admin), session: Session = Depends(get_session),
           _: None = Depends(require_csrf)):
     event = _event_of(session, token)
-    rnd = owned_round(session, round_id, event.id)
+    owned_round(session, round_id, event.id)
     # protect sessions already in progress: pin them so regenerate keeps them put
     # (unless the admin explicitly chose to re-solve everything).
     if pin_started:
         RD.pin_started_placements(session, round_id)
-    result = RD.solve_round(session, round_id, lam=rnd.lambda_fairness)
+    result = RD.solve_round(session, round_id)
     try:
         RD.apply_result(session, round_id, result)
     except ValueError as exc:

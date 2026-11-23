@@ -2,7 +2,7 @@ import pytest
 
 from app.models import (Event, Room, Participant, Proposal, ProposalRunner, Rating,
                         Round, RoundParticipant, Timeslot, TimeslotRoom)
-from app.solver_input import build_problem
+from app.solver_input import build_problem, eligibility
 from app.merge_util import merge_root
 
 
@@ -83,3 +83,64 @@ def test_min_interest_excludes_runner_only_session(session):
 def test_merge_cycle_rejected():
     with pytest.raises(ValueError):
         merge_root(1, {1: 2, 2: 1})
+
+
+def test_floor_is_clamped_to_host_cap(session):
+    # round minimum 2, but the host caps the workshop at 1 guest: it must still be
+    # able to run (floor lowered to 1), not silently never run
+    s = session
+    e, room, rnd, ts = _base_event(s)
+    rnd.min_interest = 2
+    host = _participant(s, e, "Host"); guest = _participant(s, e, "Guest")
+    a = Proposal(event_id=e.id, round_id=rnd.id, title="Tiny", created_by=host.id,
+                 max_attendees=1); s.add(a); s.flush()
+    s.add(ProposalRunner(proposal_id=a.id, participant_id=host.id))
+    s.add(Rating(participant_id=guest.id, proposal_id=a.id, stars=5)); s.flush()
+    p = build_problem(s, rnd.id)
+    assert [c.min_seated for c in p.candidates if c.id == a.id] == [1]
+
+
+def test_eligibility_counts_only_present_non_host_raters(session):
+    # Bob is away, so only Alice counts toward the floor of 2: not eligible
+    s = session
+    e, room, rnd, ts = _base_event(s)
+    rnd.min_interest = 2
+    alice = _participant(s, e, "Alice"); bob = _participant(s, e, "Bob")
+    a = Proposal(event_id=e.id, round_id=rnd.id, title="A", created_by=alice.id)
+    s.add(a); s.flush()
+    s.add(Rating(participant_id=alice.id, proposal_id=a.id, stars=4))
+    s.add(Rating(participant_id=bob.id, proposal_id=a.id, stars=4))
+    s.add(RoundParticipant(round_id=rnd.id, participant_id=bob.id, present=False))
+    s.flush()
+    el = eligibility(s, rnd.id)[a.id]
+    assert (el.interested, el.floor, el.eligible) == (1, 2, False)
+    assert all(c.id != a.id for c in build_problem(s, rnd.id).candidates)
+
+
+def test_eligibility_excludes_host_of_merged_child(session):
+    # Carol hosts B, B is merged into A, Carol rates A: she is a host of A, not a guest
+    s = session
+    e, room, rnd, ts = _base_event(s)
+    carol = _participant(s, e, "Carol")
+    a = Proposal(event_id=e.id, round_id=rnd.id, title="A", created_by=carol.id)
+    b = Proposal(event_id=e.id, round_id=rnd.id, title="B", created_by=carol.id)
+    s.add_all([a, b]); s.flush()
+    s.add(ProposalRunner(proposal_id=b.id, participant_id=carol.id))
+    s.add(Rating(participant_id=carol.id, proposal_id=a.id, stars=4))
+    b.merged_into = a.id; b.status = "retired"; s.flush()
+    assert eligibility(s, rnd.id)[a.id].interested == 0
+
+
+def test_eligibility_hosts_away(session):
+    s = session
+    e, room, rnd, ts = _base_event(s)
+    host = _participant(s, e, "Host"); guest = _participant(s, e, "Guest")
+    a = Proposal(event_id=e.id, round_id=rnd.id, title="A", created_by=host.id)
+    s.add(a); s.flush()
+    s.add(ProposalRunner(proposal_id=a.id, participant_id=host.id))
+    s.add(Rating(participant_id=guest.id, proposal_id=a.id, stars=5))
+    s.add(RoundParticipant(round_id=rnd.id, participant_id=host.id, present=False))
+    s.flush()
+    el = eligibility(s, rnd.id)[a.id]
+    assert el.hosts_away and not el.eligible
+

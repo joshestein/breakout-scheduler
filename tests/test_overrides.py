@@ -16,18 +16,16 @@ def test_total_interest_is_sum_of_seated_weights():
     # two people want C100 (5★ and 4★) in one room with capacity 2 -> both seated
     p = Problem(slots=[Slot(id=1, position=0, rooms={10: 5})],
                 candidates=[Candidate(id=100, runners=frozenset())],
-                present=frozenset({1, 2}), stars={(1, 100): 5, (2, 100): 4},
-                lam=0.0, min_interest=1)
+                present=frozenset({1, 2}), stars={(1, 100): 5, (2, 100): 4})
     r = build_and_solve(p)
-    assert r.total_interest == WEIGHT[5] + WEIGHT[4]   # 9 + 4 = 13
+    assert r.total_interest == WEIGHT[5] + WEIGHT[4]   # 3 + 2 = 5
 
 
 def test_total_interest_counts_only_seated_when_over_capacity():
     # 3 want it (5★ each), room holds 1 -> only one seat counts
     p = Problem(slots=[Slot(id=1, position=0, rooms={10: 1})],
                 candidates=[Candidate(id=100, runners=frozenset())],
-                present=frozenset({1, 2, 3}), stars={(u, 100): 5 for u in (1, 2, 3)},
-                lam=0.0, min_interest=1)
+                present=frozenset({1, 2, 3}), stars={(u, 100): 5 for u in (1, 2, 3)})
     r = build_and_solve(p)
     assert r.total_interest == WEIGHT[5]               # only 1 seat
 
@@ -36,7 +34,7 @@ def test_no_raters_means_zero_present_denominator():
     # nobody engaged -> n_present 0, so coverage% is not misleadingly "100%"
     p = Problem(slots=[Slot(id=1, position=0, rooms={10: 5})],
                 candidates=[Candidate(id=100, runners=frozenset())],
-                present=frozenset(), stars={}, lam=0.0, min_interest=1)
+                present=frozenset(), stars={})
     r = build_and_solve(p)
     assert r.n_present == 0
 
@@ -68,10 +66,10 @@ def _p(s, e, n):
 def test_evaluate_current_scores_the_actual_grid_not_a_resolve(session):
     s = session; e = _evt(s)
     room = Room(event_id=e.id, name="Lib", capacity=10); s.add(room); s.flush()
-    rnd = RD.create_round(s, event_id=e.id, name="R")
+    rnd = RD.create_round(s, event_id=e.id, name="R", min_interest=1)
     ts = RD.add_timeslot(s, round_id=rnd.id, name="14:00", position=0, room_ids=[room.id])
     u = _p(s, e, "Al")
-    a = P.propose(s, event_id=e.id, title="AI", created_by=u.id)
+    a = P.propose(s, event_id=e.id, title="AI", created_by=u.id, runner=False)
     RT.set_rating(s, participant_id=u.id, proposal_id=a.id, stars=5)
     # nothing placed yet -> the grid is empty, so the rater is NOT covered (no 100%)
     r = RD.evaluate_current(s, rnd.id)
@@ -103,7 +101,7 @@ def test_regenerate_pins_and_preserves_started_sessions(session):
     from datetime import datetime, timezone
     s = session; e = _evt(s)
     room = Room(event_id=e.id, name="Lib", capacity=10); s.add(room); s.flush()
-    rnd = RD.create_round(s, event_id=e.id, name="R")
+    rnd = RD.create_round(s, event_id=e.id, name="R", min_interest=1)
     ts1 = RD.add_timeslot(s, round_id=rnd.id, name="A", position=0, room_ids=[room.id])
     RD.add_timeslot(s, round_id=rnd.id, name="B", position=1, room_ids=[room.id])
     u = _p(s, e, "Al")

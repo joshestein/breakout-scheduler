@@ -14,7 +14,7 @@
       </details>{% endif %}
       {% if r.p.description %}<span class="rr-desc">{{ r.p.description }}</span>{% endif %}
       {% if r.p.max_attendees %}<span class="cap-chip" title="the host caps this session at {{ r.p.max_attendees }} attendees">cap {{ r.p.max_attendees }}</span>{% endif %}
-      {% if r.p.min_interest_override %}<span class="cap-chip" title="only runs if at least {{ r.p.min_interest_override }} people want it">needs {{ r.p.min_interest_override }}</span>{% endif %}
+      {% if r.p.min_interest_override %}<span class="cap-chip" title="only runs if at least {{ r.p.min_interest_override }} people besides the host come">needs {{ r.p.min_interest_override }}</span>{% endif %}
     </div>
     <div class="stars" role="radiogroup" aria-label="how much you want to attend">
       {% set labels = {1:"won't go",2:"rather not",3:"maybe",4:"want",5:"must"} %}

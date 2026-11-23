@@ -7,9 +7,7 @@ def test_overflow_is_flagged_not_fatal():
         slots=[Slot(id=1, position=0, rooms={10: 2})],
         candidates=[Candidate(id=100, runners=frozenset())],
         present=frozenset({1, 2, 3, 4, 5}),
-        stars={(u, 100): 5 for u in range(1, 6)},
-        lam=0.0, min_interest=1,
-    )
+        stars={(u, 100): 5 for u in range(1, 6)})
     r = build_and_solve(p)
     assert r.status in ("OPTIMAL", "FEASIBLE")
     assert len(r.placements) == 1
@@ -21,9 +19,7 @@ def test_forced_uncovered_when_capacity_below_present_interest():
         slots=[Slot(id=1, position=0, rooms={10: 2})],
         candidates=[Candidate(id=100, runners=frozenset())],
         present=frozenset({1, 2, 3, 4}),
-        stars={(u, 100): 5 for u in range(1, 5)},
-        lam=20.0, min_interest=1,
-    )
+        stars={(u, 100): 5 for u in range(1, 5)})
     r = build_and_solve(p)
     assert len(r.left_out[1]) >= 2
     assert len(r.forced_uncovered[1]) >= 2
@@ -36,13 +32,11 @@ def test_host_max_attendees_caps_seated():
         slots=[Slot(id=1, position=0, rooms={10: 10})],
         candidates=[Candidate(id=100, runners=frozenset(), max_attendees=2)],
         present=frozenset({1, 2, 3, 4, 5}),
-        stars={(u, 100): 5 for u in range(1, 6)},
-        lam=0.0, min_interest=1,
-    )
+        stars={(u, 100): 5 for u in range(1, 6)})
     r = build_and_solve(p)
     assert r.status in ("OPTIMAL", "FEASIBLE")
     cell = r.placements[0]
-    assert cell.projected_attendance <= 2
+    assert cell.seated_guests <= 2
     assert cell.capacity == 2          # min(room 10, host cap 2)
     assert cell.overflow == 3          # 5 interested, 2 seats
 
@@ -56,12 +50,10 @@ def test_host_max_routes_overflow_to_next_best():
                     Candidate(id=200, runners=frozenset())],
         present=frozenset({1, 2, 3}),
         stars={**{(u, 100): 5 for u in (1, 2, 3)},
-               **{(u, 200): 4 for u in (1, 2, 3)}},
-        lam=10.0, min_interest=1,
-    )
+               **{(u, 200): 4 for u in (1, 2, 3)}})
     r = build_and_solve(p)
     capped = [pl for pl in r.placements if pl.candidate_id == 100]
-    assert capped and capped[0].projected_attendance <= 1
+    assert capped and capped[0].seated_guests <= 1
     assert not r.left_out.get(1)       # everyone still has somewhere to be
 
 
@@ -72,10 +64,8 @@ def test_cap_below_runner_count_floors_to_runners():
         slots=[Slot(id=1, position=0, rooms={10: 10})],
         candidates=[Candidate(id=100, runners=frozenset({1, 2, 3}), max_attendees=1)],
         present=frozenset({1, 2, 3, 4, 5}),
-        stars={(u, 100): 5 for u in range(1, 6)},
-        lam=0.0, min_interest=1,
-    )
+        stars={(u, 100): 5 for u in range(1, 6)})
     r = build_and_solve(p)
     assert r.status in ("OPTIMAL", "FEASIBLE")
     assert r.placements, "capped session with co-runners must still be placeable"
-    assert r.placements[0].projected_attendance >= 3   # all three runners fit
+    assert r.placements[0].seated_guests == 1           # the cap counts guests; runners always fit

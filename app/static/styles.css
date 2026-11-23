@@ -239,19 +239,6 @@ label.tiny{display:flex;flex-direction:column;gap:.2rem;font-family:var(--mono);
   text-transform:uppercase;letter-spacing:.05em;color:var(--soft)}
 .roomlist{list-style:none;margin:.5rem 0 0;padding:0;font-family:var(--mono);font-size:.74rem;color:var(--soft)}
 
-/* fairness instrument */
-.settings .slider{display:flex;flex-direction:column;gap:.3rem;font-family:var(--mono);font-size:.7rem;
-  text-transform:uppercase;letter-spacing:.08em;color:var(--soft);margin-bottom:.4rem}
-.settings .slider output{font-family:var(--serif);font-size:1.4rem;font-weight:900;color:var(--accent-dk);
-  text-transform:none;letter-spacing:0}
-.settings input[type=range]{-webkit-appearance:none;appearance:none;height:3px;background:var(--rule);
-  border:none;border-radius:2px;padding:0}
-.settings input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;
-  border-radius:50%;background:var(--accent);border:2px solid var(--paper);box-shadow:0 0 0 1px var(--accent-dk);cursor:pointer}
-.settings input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;
-  background:var(--accent);border:2px solid var(--paper);box-shadow:0 0 0 1px var(--accent-dk);cursor:pointer}
-.slider .ends{display:flex;justify-content:space-between;font-size:.6rem;font-style:normal}
-.slider .ends i{font-family:var(--serif);font-style:italic;text-transform:none;letter-spacing:0;color:var(--soft)}
 .explain{font-family:var(--serif);font-size:.84rem;color:var(--soft);margin:.35rem 0;line-height:1.45}
 .explain b{color:var(--ink);font-style:normal}
 
