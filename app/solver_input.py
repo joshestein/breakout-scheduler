@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from collections import defaultdict
 
 from sqlalchemy import select
@@ -63,39 +62,23 @@ def build_problem(session: Session, round_id: int, lam: float | None = None,
         rated = {u for (u, k), s in folded.items() if k == cid and s >= INTERESTED_STARS}
         return len(rated | effective_runners(cid))
 
-    # slots first — need their durations to derive multi-slot length from minutes.
-    # A room's capacity in a slot is its per-slot override if set, else the room default.
     slots: list[Slot] = []
-    durations: list[int] = []
     for ts in session.scalars(
             select(Timeslot).where(Timeslot.round_id == round_id)
             .order_by(Timeslot.position)).all():
-        rooms = {tr.room_id: (tr.capacity if tr.capacity is not None
-                              else session.get(Room, tr.room_id).capacity)
+        rooms = {tr.room_id: session.get(Room, tr.room_id).capacity
                  for tr in session.scalars(
                      select(TimeslotRoom).where(TimeslotRoom.timeslot_id == ts.id)).all()}
         slots.append(Slot(id=ts.id, position=ts.position, rooms=rooms))
-        durations.append(ts.duration_minutes or 0)
-
-    n_slots = len(slots)
-    unit = min((d for d in durations if d > 0), default=0)
-
-    def slots_for(p: Proposal) -> int:
-        if p.min_minutes and unit > 0:
-            return max(1, min(n_slots, math.ceil(p.min_minutes / unit)))
-        return p.slots_needed or 1
 
     def eff_min_interest(p: Proposal) -> int:
         return (p.min_interest_override if p.min_interest_override is not None
                 else rnd.min_interest)
 
     candidates = [
-        Candidate(id=p.id, runners=effective_runners(p.id), slots_needed=slots_for(p),
-                  allow_repeat=p.allow_repeat, must_run=p.must_run,
-                  max_attendees=p.max_attendees, needs_space=p.needs_space)
+        Candidate(id=p.id, runners=effective_runners(p.id), max_attendees=p.max_attendees)
         for p in active_roots
-        if interested_count(p.id) >= eff_min_interest(p) or p.must_run
-        or p.id in force_include]
+        if interested_count(p.id) >= eff_min_interest(p) or p.id in force_include]
     cand_ids = {c.id for c in candidates}
 
     stars = {(u, cid): s for (u, cid), s in folded.items() if cid in cand_ids}

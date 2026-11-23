@@ -28,19 +28,3 @@ def test_conflicting_pin_is_reported_not_crash():
     )
     r = build_and_solve(p)
     assert (100, 1, 999) in r.pin_conflicts
-
-
-def test_multislot_occupies_consecutive_cells():
-    slots = [Slot(id=1, position=0, rooms={10: 50}),
-             Slot(id=2, position=1, rooms={10: 50})]
-    p = Problem(
-        slots=slots,
-        candidates=[Candidate(id=100, runners=frozenset(), slots_needed=2),
-                    Candidate(id=200, runners=frozenset())],
-        present=frozenset({1, 2}),
-        stars={(1, 100): 5, (2, 200): 5},
-        lam=0.0, min_interest=1,
-    )
-    r = build_and_solve(p)
-    c100 = [pl for pl in r.placements if pl.candidate_id == 100]
-    assert {pl.slot_id for pl in c100} == {1, 2}

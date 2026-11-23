@@ -13,7 +13,6 @@
         </form>
       </details>{% endif %}
       {% if r.p.description %}<span class="rr-desc">{{ r.p.description }}</span>{% endif %}
-      {% if not r.p.needs_space %}<span class="cap-chip" title="no room needed — happens elsewhere">elsewhere</span>{% endif %}
       {% if r.p.max_attendees %}<span class="cap-chip" title="the host caps this session at {{ r.p.max_attendees }} attendees">cap {{ r.p.max_attendees }}</span>{% endif %}
       {% if r.p.min_interest_override %}<span class="cap-chip" title="only runs if at least {{ r.p.min_interest_override }} people want it">needs {{ r.p.min_interest_override }}</span>{% endif %}
     </div>

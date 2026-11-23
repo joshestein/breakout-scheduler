@@ -14,7 +14,7 @@
           {% if slot.ts.id in now_ids %}<span class="badge">now</span>{% endif %}</div>
         <ul class="slot-rooms">
           {% for c in slot.cells %}
-          <li><span class="where {% if c.room_id is none %}elsewhere{% endif %}">{{ c.room_label }}</span><span class="what">{{ c.title }}</span></li>
+          <li><span class="where">{{ c.room_label }}</span><span class="what">{{ c.title }}</span></li>
           {% else %}<li class="empty">— nothing scheduled —</li>{% endfor %}
         </ul>
       </section>

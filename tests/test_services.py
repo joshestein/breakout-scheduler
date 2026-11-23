@@ -5,9 +5,7 @@ from app.models import (Event, Room, Participant, Proposal, ProposalRunner, Rati
 from app.services import proposals as P
 from app.services import ratings as R
 from app.services import rounds as RD
-from app.services.preview import PreviewCache
 from app.services.backup import backup_once
-from app.types import Result
 
 
 def _event(s):
@@ -60,7 +58,6 @@ def test_load_participant_rejects_stale_cookie(session):
 
 
 def test_delete_room_cascades(session):
-    from app.services import participants as PART  # noqa: F401 (import sanity)
     s = session
     e, rooms, rnd, ts = _round_with_two_rooms(s)
     r1 = rooms[0]
@@ -83,36 +80,6 @@ def test_delete_timeslot_cascades(session):
     assert s.get(Timeslot, ts.id) is None
     assert s.query(Placement).filter_by(timeslot_id=ts.id).count() == 0
     assert s.query(TimeslotRoom).filter_by(timeslot_id=ts.id).count() == 0
-
-
-def test_merge_participants_folds_ratings_runners(session):
-    from app.services import participants as PART
-    s = session; e = _event(s)
-    r = RD.create_round(s, event_id=e.id, name="R1")
-    a = _p(s, e, "Sam"); b = _p(s, e, "Sam (phone2)")
-    x = P.propose(s, event_id=e.id, title="X", created_by=a.id, runner=False)
-    R.set_rating(s, participant_id=a.id, proposal_id=x.id, stars=3)
-    R.set_rating(s, participant_id=b.id, proposal_id=x.id, stars=5)
-    P.set_runner(s, x.id, b.id, True)
-    PART.merge_participants(s, source_id=b.id, target_id=a.id)
-    assert s.get(Participant, b.id) is None                  # duplicate removed
-    rt = s.query(Rating).filter_by(participant_id=a.id, proposal_id=x.id).one()
-    assert rt.stars == 5                                     # stronger rating kept
-    assert s.query(ProposalRunner).filter_by(participant_id=a.id, proposal_id=x.id).count() == 1
-    assert s.query(Rating).filter_by(participant_id=b.id).count() == 0
-
-
-def test_merge_repoints_proposals_authored_by_source(session):
-    # the source person proposed a session; merging must repoint created_by to the
-    # target, not crash on the proposals.created_by FK (regression: it used to).
-    from app.services import participants as PART
-    s = session; e = _event(s)
-    RD.create_round(s, event_id=e.id, name="R1")
-    a = _p(s, e, "Sam"); b = _p(s, e, "Sam (phone2)")
-    authored = P.propose(s, event_id=e.id, title="By the dupe", created_by=b.id, runner=False)
-    PART.merge_participants(s, source_id=b.id, target_id=a.id)
-    assert s.get(Participant, b.id) is None                      # source gone (no FK error)
-    assert s.get(Proposal, authored.id).created_by == a.id       # authorship moved to target
 
 
 def test_cross_round_merge_rejected(session):
@@ -267,27 +234,6 @@ def test_set_present_drops_runner_from_solve(session):
     after = build_problem(session, rnd.id)
     assert runner.id not in after.present
     assert all(runner.id not in c.runners for c in after.candidates)
-
-
-# ---- preview cache ---------------------------------------------------------
-
-def test_preview_debounces(session):
-    calls = {"n": 0}
-
-    def solve(rid):
-        calls["n"] += 1
-        return Result(status="OPTIMAL", placements=[], total_interest=0, n_present=0,
-                      coverage_pct={}, left_out={}, forced_uncovered={})
-
-    cache = PreviewCache(interval_s=3.0)
-    cache.mark_dirty(1)
-    cache.refresh_due(now=0.0, solve_fn=solve)       # solves
-    cache.mark_dirty(1)
-    cache.refresh_due(now=1.0, solve_fn=solve)       # too soon, skip
-    assert calls["n"] == 1
-    cache.refresh_due(now=4.0, solve_fn=solve)       # interval passed
-    assert calls["n"] == 2
-    assert cache.get(1) is not None
 
 
 # ---- backup ----------------------------------------------------------------

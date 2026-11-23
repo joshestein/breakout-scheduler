@@ -10,7 +10,7 @@ def test_weight_table_is_single_source_of_truth():
 def test_problem_is_constructible():
     p = Problem(
         slots=[Slot(id=1, position=0, rooms={10: 8})],
-        candidates=[Candidate(id=100, runners=frozenset(), slots_needed=1, allow_repeat=False)],
+        candidates=[Candidate(id=100, runners=frozenset())],
         present=frozenset({1, 2}),
         stars={(1, 100): 5},
         lam=3.0,

@@ -153,10 +153,6 @@ body[data-page="published"] .phone>*,
 .opt-grid input{width:3.4rem;font-size:.8rem;padding:.15rem .3rem;font-family:var(--mono);background:var(--card)}
 .dim{color:var(--soft)}
 .by-who{font-style:italic}
-.where.elsewhere{font-style:italic;color:var(--soft)}
-.elsewhere-col{background:var(--accent-wash)}
-.elsewhere-cell{vertical-align:top;background:color-mix(in srgb,var(--accent-wash) 40%,transparent)}
-.elsewhere-cell .card{margin-bottom:.3rem}
 .by-who::before{content:"·";font-style:normal;margin:0 .3rem 0 0;color:var(--rule)}
 .cap-chip{display:inline-block;font-family:var(--mono);font-size:.62rem;text-transform:uppercase;
   letter-spacing:.06em;padding:.05rem .35rem;border:1px solid var(--rule);border-radius:.6rem;
@@ -231,7 +227,6 @@ body[data-page="published"] .phone>*,
 .chip.ghost{background:transparent;border-color:var(--faint);color:var(--soft)}
 .past-rounds{margin-top:.5rem} .past-rounds>summary{color:var(--soft)}
 .past-rounds .chip{margin:.2rem .2rem 0 0}
-.readd-box{margin:.2rem 0 .6rem} .readd{display:block;width:auto;margin:.1rem 0}
 .chip.active{background:var(--accent);color:#fdf3ee;border-color:var(--accent-dk)}
 .chip.active small{color:#f4d8cd}
 .mini>summary{cursor:pointer;font-family:var(--mono);font-size:.72rem;text-transform:uppercase;
@@ -264,11 +259,6 @@ label.tiny{display:flex;flex-direction:column;gap:.2rem;font-family:var(--mono);
 .rooms-pick legend{font-family:var(--mono);font-size:.62rem;text-transform:uppercase;letter-spacing:.1em;color:var(--soft);padding:0 .3rem}
 .ck{display:flex;align-items:center;gap:.3rem;font-size:.8rem;width:auto}
 .ck input{width:auto}
-.capov{width:3rem;padding:.12rem .25rem;font-size:.72rem;font-family:var(--mono);margin-left:.25rem}
-.caps-grid{display:grid;grid-template-columns:1fr 1fr;gap:.35rem .6rem;margin:.4rem 0}
-.caprow{flex-direction:row!important;align-items:center;justify-content:space-between;
-  text-transform:none!important;letter-spacing:0!important;font-family:var(--sans)!important}
-.capset{font-family:var(--mono);color:var(--accent-dk);font-size:.62rem;margin-left:.25rem}
 
 /* pool */
 .addsession{display:flex;gap:.4rem;margin-bottom:.7rem}
@@ -347,7 +337,7 @@ label.tiny{display:flex;flex-direction:column;gap:.2rem;font-family:var(--mono);
 .bar i{display:block;height:100%;background:var(--forest)}
 .cell.over .bar i{background:var(--over)}
 .meta{font-family:var(--mono);font-size:.68rem;color:var(--soft);padding:.15rem .55rem}
-.meta .ov{color:var(--over)} .meta .capset{color:var(--accent-dk)}
+.meta .ov{color:var(--over)}
 .card-actions{display:flex;gap:.3rem;padding:.1rem .4rem .4rem}
 
 /* consequences — margin notes */

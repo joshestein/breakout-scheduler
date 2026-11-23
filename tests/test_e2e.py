@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from app.webapp import create_app
 from app.config import Settings
-from app.models import Event, Room, Round, Timeslot, RoundSnapshot, Proposal, Placement
+from app.models import Event, Room, Round, Timeslot, RoundSnapshot, Proposal
 
 
 @pytest.fixture
@@ -14,7 +14,7 @@ def app(tmp_path):
     return create_app(Settings(
         secret_key="test-secret", db_path=str(tmp_path / "e2e.db"),
         backup_dir=str(tmp_path / "bk"), backup_interval_s=9999,
-        preview_interval_s=1, bootstrap_admin_code=None))
+        bootstrap_admin_code=None))
 
 
 def _csrf(client) -> str:
@@ -288,11 +288,11 @@ def test_default_secret_blocked_in_prod():
     import pytest as _pytest
     with _pytest.raises(RuntimeError):
         create_app(Settings(secret_key="dev-insecure-key-change-me", db_path=":memory:",
-                            backup_dir="/tmp/x", backup_interval_s=999, preview_interval_s=3,
+                            backup_dir="/tmp/x", backup_interval_s=999,
                             bootstrap_admin_code=None, cookie_secure=True))
 
 
-def test_room_timeslot_edit_delete_and_merge_routes(app):
+def test_room_timeslot_edit_delete_routes(app):
     csrf = _csrf(TestClient(app))
     admin = TestClient(app)
     _post(admin, "/events", csrf, {"name": "R", "participant_code": "p", "admin_code": "a",
@@ -317,17 +317,6 @@ def test_room_timeslot_edit_delete_and_merge_routes(app):
         assert s.get(_R, rooms[1]) is None
         assert s.scalar(select(Room).where(Room.id == rooms[0])).capacity == 20
 
-    # merge two participants
-    for n in ("Sam", "Sam2"):
-        c = TestClient(app); _post(c, "/enter", csrf, {"code": "p", "name": n})
-    with sf() as s:
-        from app.models import Participant as _P
-        ps = [p.id for p in s.scalars(select(_P).where(_P.display_name.in_(("Sam", "Sam2"))))]
-    assert _post(admin, "/admin/merge-participants", csrf,
-                 {"round_id": rid, "source_id": ps[1], "target_id": ps[0]}).status_code == 200
-    with sf() as s:
-        from app.models import Participant as _P
-        assert s.get(_P, ps[1]) is None
     # delete the timeslot last
     assert _post(admin, "/admin/timeslot-delete", csrf, {"round_id": rid, "timeslot_id": ts}).status_code == 200
 
@@ -450,64 +439,6 @@ def test_propose_with_host_caps(app):
         assert p.min_interest_override is None and p.max_attendees is None
 
 
-def test_anonymous_proposal(app):
-    from app.models import ProposalRunner
-    csrf = _csrf(TestClient(app))
-    admin = TestClient(app)
-    _post(admin, "/events", csrf, {"name": "R", "participant_code": "p", "admin_code": "a",
-                                   "admin_name": "Org", "rooms": "Lib, 10"})
-    _post(admin, "/admin/round", csrf, {"name": "R1"})
-    sf = app.state.session_factory
-    c1 = TestClient(app); _post(c1, "/enter", csrf, {"code": "p", "name": "Sam"})
-    _post(c1, "/propose", csrf, {"title": "Secret topic", "anonymous": "1"})
-    _post(c1, "/propose", csrf, {"title": "Open topic"})
-    with sf() as s:
-        secret = s.scalar(select(Proposal).where(Proposal.title == "Secret topic"))
-        openp = s.scalar(select(Proposal).where(Proposal.title == "Open topic"))
-        assert secret.anonymous is True and openp.anonymous is False
-        # the anonymous proposer keeps edit rights (created_by) but is NOT a named runner
-        assert secret.created_by is not None
-        assert s.scalar(select(ProposalRunner).where(
-            ProposalRunner.proposal_id == secret.id)) is None
-        # a normal proposal still auto-adds the proposer as runner
-        assert s.scalar(select(ProposalRunner).where(
-            ProposalRunner.proposal_id == openp.id)) is not None
-    # admin console never shows the anonymous proposer's name
-    rid = app_round_id(sf)
-    html = admin.get("/admin?round_id=%d" % rid).text
-    assert "by anonymous" in html
-    assert "Secret topic" in html
-    # the open topic shows the real name
-    assert "by Sam" in html
-
-
-def test_elsewhere_proposal_end_to_end(app):
-    csrf = _csrf(TestClient(app))
-    admin = TestClient(app)
-    _post(admin, "/events", csrf, {"name": "R", "participant_code": "p", "admin_code": "a",
-                                   "admin_name": "Org", "rooms": "Lib, 10"})
-    _post(admin, "/admin/round", csrf, {"name": "R1"})
-    sf = app.state.session_factory
-    rid = app_round_id(sf)
-    _post(admin, "/admin/timeslot", csrf, {"round_id": rid, "name": "14:00", "duration_minutes": "45"})
-    c1 = TestClient(app); _post(c1, "/enter", csrf, {"code": "p", "name": "Sam"})
-    # propose a roomless session via the form flag
-    _post(c1, "/propose", csrf, {"title": "Lakeside walk", "no_room": "1"})
-    with sf() as s:
-        p = s.scalar(select(Proposal).where(Proposal.title == "Lakeside walk"))
-        assert p.needs_space is False
-        ts = s.scalar(select(Timeslot).where(Timeslot.round_id == rid))
-    # console shows the Elsewhere column + an "elsewhere" badge
-    html = admin.get("/admin?round_id=%d" % rid).text
-    assert "Elsewhere" in html and "elsewhere" in html
-    # admin places it elsewhere (no room); a roomless placement is created
-    assert _post(admin, "/admin/place-elsewhere", csrf,
-                 {"round_id": rid, "timeslot_id": ts.id, "proposal_id": p.id}).status_code == 200
-    with sf() as s:
-        pl = s.scalar(select(Placement).where(Placement.proposal_id == p.id))
-        assert pl is not None and pl.room_id is None
-
-
 def test_stale_cb_cookie_rejected_over_http(app):
     # a correctly-signed cookie whose cb (created-at) no longer matches the row must
     # NOT silently authenticate (guards against id-reuse impersonation after a rebuild).
@@ -527,30 +458,6 @@ def test_stale_cb_cookie_rejected_over_http(app):
         s.commit()
     r = c.get("/app", follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"] == "/"
-
-
-def test_anonymous_not_leaked_on_public_schedule(app):
-    csrf = _csrf(TestClient(app)); admin = TestClient(app)
-    _post(admin, "/events", csrf, {"name": "R", "participant_code": "p", "admin_code": "a",
-                                   "admin_name": "Org", "rooms": "Lib, 10"})
-    _post(admin, "/admin/round", csrf, {"name": "R1"})
-    sf = app.state.session_factory
-    rid = app_round_id(sf)
-    with sf() as s:
-        room = s.scalar(select(Room)).id
-    _post(admin, "/admin/timeslot", csrf, {"round_id": rid, "name": "14:00",
-                                           "duration_minutes": "45", "room_ids": [str(room)]})
-    c1 = TestClient(app); _post(c1, "/enter", csrf, {"code": "p", "name": "Sam"})
-    _post(c1, "/propose", csrf, {"title": "Quiet topic", "anonymous": "1"})
-    with sf() as s:
-        pid = s.scalar(select(Proposal).where(Proposal.title == "Quiet topic")).id
-    _post(c1, "/rate", csrf, {"proposal_id": pid, "stars": 5})
-    _post(admin, "/admin/solve", csrf, {"round_id": rid})
-    _post(admin, "/admin/publish", csrf, {"round_id": rid})
-    # the public schedule shows the session but never the anonymous proposer's name
-    page = TestClient(app).get("/s/p").text
-    assert "Quiet topic" in page
-    assert "Sam" not in page
 
 
 def test_rate_since_returns_only_newer(app):

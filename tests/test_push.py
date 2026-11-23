@@ -35,6 +35,6 @@ def test_subscribe_validates_and_upserts(session):
 
 def test_notify_round_noop_when_push_disabled():
     s = Settings(secret_key="k", db_path=":memory:", backup_dir="/tmp", backup_interval_s=9,
-                 preview_interval_s=3, bootstrap_admin_code=None)
+                 bootstrap_admin_code=None)
     assert s.push_enabled is False
     assert PUSH.notify_round(lambda: None, s, 1, "t", "b") == 0   # returns before touching DB

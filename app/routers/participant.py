@@ -5,7 +5,7 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from app.models import (Event, Participant, Proposal, ProposalRunner, Rating, Round,
-                        Timeslot, TimeslotRoom, Placement, Room)
+                        Timeslot, Room)
 from app.types import INTERESTED_STARS
 from app.deps import get_session, require_participant, require_csrf, load_participant
 from app.render import render
@@ -82,7 +82,6 @@ def app_home(request: Request, token=Depends(require_participant),
 @router.post("/propose")
 def propose(request: Request, title: str = Form(...), description: str = Form(""),
             min_attendees: int | None = Form(None), max_attendees: int | None = Form(None),
-            anonymous: int = Form(0), no_room: int = Form(0),
             token=Depends(require_participant), session: Session = Depends(get_session),
             _: None = Depends(require_csrf)):
     me, event = _me_event(session, token)
@@ -92,9 +91,7 @@ def propose(request: Request, title: str = Form(...), description: str = Form(""
     if title.strip() and rnd:
         P.propose(session, event_id=event.id, title=title, created_by=me.id,
                   description=description or None, round_id=rnd.id,
-                  min_interest_override=min_attendees, max_attendees=max_attendees,
-                  anonymous=bool(anonymous), needs_space=not bool(no_room))
-        request.app.state.preview_cache.mark_dirty(rnd.id)
+                  min_interest_override=min_attendees, max_attendees=max_attendees)
     rows = _rows(session, me, rnd.id) if rnd else []
     return render(request, "_rate_list.html", me=me, rows=rows)
 
@@ -109,8 +106,6 @@ def rate(request: Request, proposal_id: int = Form(...), stars: int = Form(...),
         raise HTTPException(status_code=400, detail="stars must be 1..5")
     RT.set_rating(session, participant_id=me.id, proposal_id=proposal_id, stars=stars)
     rnd = _input_round(session, event.id)
-    if rnd:
-        request.app.state.preview_cache.mark_dirty(rnd.id)
     rows = _rows(session, me, rnd.id if rnd else None)
     row = next(r for r in rows if r["p"].id == proposal_id)
     unrated_count = sum(1 for r in rows if not r["rated"])
@@ -127,8 +122,6 @@ def runner_toggle(request: Request, proposal_id: int = Form(...), on: int = Form
     if on:  # running implies max interest
         RT.set_rating(session, participant_id=me.id, proposal_id=proposal_id, stars=5)
     rnd = _input_round(session, event.id)
-    if rnd:
-        request.app.state.preview_cache.mark_dirty(rnd.id)
     rows = _rows(session, me, rnd.id if rnd else None)
     row = next(r for r in rows if r["p"].id == proposal_id)
     unrated_count = sum(1 for r in rows if not r["rated"])
@@ -166,7 +159,6 @@ def propose_edit(request: Request, proposal_id: int = Form(...), title: str = Fo
     _, rnd = _own_editable(session, me, event, proposal_id)
     if title.strip():
         P.edit_title(session, proposal_id, title)
-        request.app.state.preview_cache.mark_dirty(rnd.id)
     return render(request, "_rate_list.html", me=me, rows=_rows(session, me, rnd.id))
 
 
@@ -177,7 +169,6 @@ def propose_delete(request: Request, proposal_id: int = Form(...),
     me, event = _me_event(session, token)
     _, rnd = _own_editable(session, me, event, proposal_id)
     P.retire(session, proposal_id)
-    request.app.state.preview_cache.mark_dirty(rnd.id)
     return render(request, "_rate_list.html", me=me, rows=_rows(session, me, rnd.id))
 
 
@@ -208,8 +199,8 @@ def build_published_grid(session: Session, event: Event, rnd: Round,
             interested = session.scalar(select(func.count(Rating.id)).where(
                 Rating.proposal_id == pid, Rating.stars >= INTERESTED_STARS)) or 0
             room = rooms.get(rid)
-            # frozen room name from the snapshot; fall back to live room if renamed
-            label = "Elsewhere" if rid is None else (e.get("room") or (room.name if room else "—"))
+            # frozen room name from the snapshot; fall back to the live room
+            label = e.get("room") or (room.name if room else "—")
             cells.append({"key": pid, "title": e.get("title"), "room_id": rid,
                           "room_label": label, "my_stars": my_stars.get(pid, 0),
                           "interested": interested,

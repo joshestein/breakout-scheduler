@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models import (Round, Timeslot, TimeslotRoom, Placement, Room, Proposal,
                         Participant, RoundParticipant, RoundSnapshot)
-from app.types import Result, ELSEWHERE
+from app.types import Result
 from app.solver_input import build_problem
 from app.solver import build_and_solve
 
@@ -35,26 +35,19 @@ def add_timeslot(session: Session, *, round_id: int, name: str, position: int,
     return ts
 
 
-def set_timeslot_rooms(session: Session, *, timeslot_id: int, room_ids: list[int],
-                       caps: dict[int, int | None] | None = None) -> None:
-    """Replace the set of rooms available in a timeslot (arbitrary per slot), with
-    optional per-room capacity overrides. Placements in removed rooms are dropped."""
+def set_timeslot_rooms(session: Session, *, timeslot_id: int, room_ids: list[int]) -> None:
+    """Replace the set of rooms available in a timeslot. Placements in removed
+    rooms are dropped."""
     keep = set(room_ids)
-    caps = caps or {}
     existing = {tr.room_id: tr for tr in session.scalars(
         select(TimeslotRoom).where(TimeslotRoom.timeslot_id == timeslot_id))}
     for room_id, tr in existing.items():
         if room_id not in keep:
             session.delete(tr)
-        else:
-            tr.capacity = caps.get(room_id)  # None = use room default
-    for room_id in keep:
-        if room_id not in existing:
-            session.add(TimeslotRoom(timeslot_id=timeslot_id, room_id=room_id,
-                                     capacity=caps.get(room_id)))
-    # drop placements that now reference a removed room (keep roomless "elsewhere" ones)
+    for room_id in keep - existing.keys():
+        session.add(TimeslotRoom(timeslot_id=timeslot_id, room_id=room_id))
     for pl in session.scalars(select(Placement).where(Placement.timeslot_id == timeslot_id)):
-        if pl.room_id is not None and pl.room_id not in keep:
+        if pl.room_id not in keep:
             session.delete(pl)
     session.flush()
 
@@ -76,15 +69,13 @@ def schedule_markdown(session: Session, round_id: int) -> str:
     blocks = []
     for ts in session.scalars(select(Timeslot).where(
             Timeslot.round_id == round_id).order_by(Timeslot.position)):
-        def room_label(pl):
-            return "Elsewhere" if pl.room_id is None else rooms.get(pl.room_id, "—")
-        # roomless ("Elsewhere") sessions sort last within a slot
         cells = sorted(session.scalars(select(Placement).where(Placement.timeslot_id == ts.id)),
-                       key=lambda pl: (pl.room_id is None, room_label(pl)))
+                       key=lambda pl: rooms.get(pl.room_id, ""))
         if not cells:
             continue
         lines = [f"{ts.name} Breakouts"]
-        lines += [f"- {room_label(pl)}: {titles.get(pl.proposal_id, '?')}" for pl in cells]
+        lines += [f"- {rooms.get(pl.room_id, '—')}: {titles.get(pl.proposal_id, '?')}"
+                  for pl in cells]
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
 
@@ -134,37 +125,17 @@ def set_present(session: Session, *, round_id: int, participant_id: int,
 
 # ---- solving ---------------------------------------------------------------
 
-def _pins_from_placements(session: Session, round_id: int) -> frozenset[tuple[int, int, int]]:
-    """Pinned placements -> solver pins as (proposal_id, start_slot_id, room_id).
+def _as_pins(placements: list[Placement]) -> frozenset[tuple[int, int, int]]:
+    """Placements -> solver keys (proposal_id, timeslot_id, room_id)."""
+    return frozenset((p.proposal_id, p.timeslot_id, p.room_id) for p in placements)
 
-    Multi-slot pinned groups (same proposal+room) collapse to their earliest slot.
-    """
-    ts_pos = {t.id: t.position for t in session.scalars(
-        select(Timeslot).where(Timeslot.round_id == round_id)).all()}
-    pinned = [p for p in _placements(session, round_id) if p.pinned]
-    by_group: dict[tuple[int, int], list[Placement]] = {}
-    for p in pinned:
-        by_group.setdefault((p.proposal_id, p.room_id if p.room_id is not None else ELSEWHERE),
-                            []).append(p)
-    pins = set()
-    for (prop_id, room_id), group in by_group.items():
-        start = min(group, key=lambda x: ts_pos[x.timeslot_id])
-        pins.add((prop_id, start.timeslot_id, room_id))
-    return frozenset(pins)
+
+def _pins_from_placements(session: Session, round_id: int) -> frozenset[tuple[int, int, int]]:
+    return _as_pins([p for p in _placements(session, round_id) if p.pinned])
 
 
 def _all_placements_as_pins(session: Session, round_id: int) -> frozenset[tuple[int, int, int]]:
-    ts_pos = {t.id: t.position for t in session.scalars(
-        select(Timeslot).where(Timeslot.round_id == round_id)).all()}
-    by_group: dict[tuple[int, int], list[Placement]] = {}
-    for p in _placements(session, round_id):
-        by_group.setdefault((p.proposal_id, p.room_id if p.room_id is not None else ELSEWHERE),
-                            []).append(p)
-    pins = set()
-    for (prop_id, room_id), group in by_group.items():
-        start = min(group, key=lambda x: ts_pos[x.timeslot_id])
-        pins.add((prop_id, start.timeslot_id, room_id))
-    return frozenset(pins)
+    return _as_pins(_placements(session, round_id))
 
 
 def solve_round(session: Session, round_id: int, lam: float | None = None) -> Result:
@@ -192,25 +163,13 @@ def apply_result(session: Session, round_id: int, result: Result, *,
         if not (keep_pinned and p.pinned):
             session.delete(p)
     session.flush()
-    # only real rooms are exclusive; roomless ("elsewhere") cells never collide
-    occupied = {(p.timeslot_id, p.room_id) for p in _placements(session, round_id)
-                if p.room_id is not None}
-    # span = cells in this contiguous run (a (candidate, room) group), so a 2-slot
-    # session reads span=2 while two separate repeats each read span=1.
-    span_by_group: dict[tuple[int, int], int] = {}
+    occupied = {(p.timeslot_id, p.room_id) for p in _placements(session, round_id)}
     for pl in result.placements:
-        k = (pl.candidate_id, pl.room_id)
-        span_by_group[k] = span_by_group.get(k, 0) + 1
-    for pl in result.placements:
-        room_db = None if pl.room_id == ELSEWHERE else pl.room_id
-        if room_db is not None and (pl.slot_id, room_db) in occupied:
+        if (pl.slot_id, pl.room_id) in occupied:
             continue
-        session.add(Placement(timeslot_id=pl.slot_id, room_id=room_db,
-                              proposal_id=pl.candidate_id,
-                              span=span_by_group.get((pl.candidate_id, pl.room_id), 1),
-                              pinned=False))
-        if room_db is not None:
-            occupied.add((pl.slot_id, room_db))
+        session.add(Placement(timeslot_id=pl.slot_id, room_id=pl.room_id,
+                              proposal_id=pl.candidate_id, pinned=False))
+        occupied.add((pl.slot_id, pl.room_id))
     session.flush()
 
 
@@ -259,7 +218,7 @@ def pin_started_placements(session: Session, round_id: int) -> int:
     return n
 
 
-def force_place(session: Session, *, timeslot_id: int, room_id: int | None,
+def force_place(session: Session, *, timeslot_id: int, room_id: int,
                 proposal_id: int) -> Placement:
     p = Placement(timeslot_id=timeslot_id, room_id=room_id, proposal_id=proposal_id,
                   pinned=True)
@@ -271,8 +230,6 @@ def force_place(session: Session, *, timeslot_id: int, room_id: int | None,
 
 def _validate_rooms(session: Session, round_id: int) -> None:
     for p in _placements(session, round_id):
-        if p.room_id is None:
-            continue  # roomless "elsewhere" session — no room to validate
         ok = session.scalar(select(TimeslotRoom).where(
             TimeslotRoom.timeslot_id == p.timeslot_id,
             TimeslotRoom.room_id == p.room_id))
@@ -294,14 +251,9 @@ def _snapshot_payload(session: Session, round_id: int) -> tuple[str, str]:
         select(Room).where(Room.event_id == event_id))}
     slots = {t.id: t.name for t in session.scalars(
         select(Timeslot).where(Timeslot.round_id == round_id))}
-    # normalise the solver's ELSEWHERE sentinel (0) to NULL, matching how roomless
-    # placements are stored in the DB — otherwise the drift check always fires and
-    # the published page can't recognise "elsewhere" sessions.
-    def room_db(rid):
-        return None if rid == ELSEWHERE else rid
     grid = [{
         "timeslot_id": pl.slot_id, "timeslot": slots.get(pl.slot_id),
-        "room_id": room_db(pl.room_id), "room": rooms.get(room_db(pl.room_id)),
+        "room_id": pl.room_id, "room": rooms.get(pl.room_id),
         "proposal_id": pl.candidate_id, "title": titles.get(pl.candidate_id),
         "projected_attendance": pl.projected_attendance, "capacity": pl.capacity,
         "overflow": pl.overflow,

@@ -20,23 +20,21 @@ hosts many events, each with its own codes, rooms, and rounds.
   **1–5 star** rating, and toggle **"I'm running this"** (which means they must be
   present at it). A proposal is just a title by default; under optional settings a
   proposer can add a short description (if the organizer allows it), cap or floor
-  attendance (a max for an intimate workshop, a min below which it shouldn't run),
-  mark it as needing **no room** — happening *elsewhere*, like a walk or a side
-  channel — or post it **anonymously**. They get a mobile schedule with their personal
+  attendance (a max for an intimate workshop, a min below which it shouldn't run).
+  They get a mobile schedule with their personal
   "→ go here" pick per timeslot, plus optional **web-push alerts** before a session
   ends (with a countdown once a timeslot's clock is running).
 - **Organizers** enter the admin code and get a dense console: a fairness slider
-  (popularity ↔ coverage), the live schedule grid (with an "Elsewhere" column for
-  roomless sessions), and a "consequences" panel showing per-slot coverage %, who's
+  (popularity ↔ coverage), the live schedule grid, and a "consequences" panel showing per-slot coverage %, who's
   left out, who found nothing they'd attend, the share who got a most-preferred
   session, capacity overflows, and the top unplaced sessions. They **Generate** a
   schedule, pin/drop/move placements and re-solve around pins, tune per-session
-  settings, merge duplicate people, then **Publish** — which freezes the lineup
+  settings, then **Publish** — which freezes the lineup
   attendees see (later edits stay private until you re-publish). The schedule can be
   copied as **Markdown** for Slack/Discord or opened as a **projector view**, and each
   timeslot has a **Start clock** that drives participant countdowns and pre-end alerts.
 - The solver balances `satisfied weighted interest − λ·(people left out)` subject to
-  room capacity (a hard seat cap; over-subscription is routed elsewhere, not punished)
+  room capacity (a hard seat cap; over-subscription is routed to next-best sessions, not punished)
   and runner-presence constraints. The proposal pool churns round to round, and every
   published round is archived.
 

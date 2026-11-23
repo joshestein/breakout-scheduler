@@ -74,34 +74,16 @@
         <input name="title" placeholder="＋ add a session…" required maxlength="200" autocomplete="off">
         <button class="btn small">add</button>
       </form>
-      {% if prev_unrun %}
-      <details class="mini readd-box"><summary>re-add from last round · {{ prev_unrun|length }}</summary>
-        <div class="muted tiny">Proposed last round but not run. Re-adding starts a fresh session — votes don't carry over.</div>
-        {% for t in prev_unrun %}
-        <form method="post" action="/admin/add-session" hx-post="/admin/add-session" class="readd">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <input type="hidden" name="round_id" value="{{ rnd.id }}">
-          <input type="hidden" name="title" value="{{ t }}">
-          <button class="lnk">＋ {{ t }}</button>
-        </form>
-        {% endfor %}
-      </details>
-      {% endif %}
       {% for x in pool %}
       {% set eff = x.p.min_interest_override if x.p.min_interest_override is not none else rnd.min_interest %}
       <div class="pool-item">
         <div class="pi-title"><span class="pi-name">{{ x.p.title }}</span>
-          {% if x.p.must_run %}<span class="badge2" title="forced to run">force-run</span>{% endif %}
-          {% if x.p.min_minutes %}<span class="badge2" title="needs ≥ {{ x.p.min_minutes }} min">{{ x.p.min_minutes }}m</span>{% endif %}
           {% if x.p.max_attendees %}<span class="badge2" title="host caps at {{ x.p.max_attendees }} attendees">cap {{ x.p.max_attendees }}</span>{% endif %}
-          {% if not x.p.needs_space %}<span class="badge2" title="no room needed — happens elsewhere">elsewhere</span>{% endif %}
-          {% if x.p.allow_repeat %}<span class="badge2" title="may run more than once">repeat</span>{% endif %}
-          {% if x.interested < eff and not x.p.must_run %}<span class="below" title="needs ≥{{ eff }} interested to be scheduled">won't run</span>{% endif %}
+          {% if x.interested < eff %}<span class="below" title="needs ≥{{ eff }} interested to be scheduled">won't run</span>{% endif %}
         </div>
         <div class="pi-agg">
           <span class="pill">♥ {{ x.interested }}</span>
-          {% if x.by %}<span class="muted tiny by-who" title="submitted by {{ x.by }}">by {{ x.by }}</span>
-          {% elif x.anon %}<span class="muted tiny by-who" title="the proposer chose to stay anonymous">by anonymous</span>{% endif %}
+          {% if x.by %}<span class="muted tiny by-who" title="submitted by {{ x.by }}">by {{ x.by }}</span>{% endif %}
           <span class="muted tiny">{{ x.n_raters }} rated · avg {{ x.avg }}</span>
           <span class="spark">{% for h in x.hist %}<i style="height:{{ 2 + h*4 }}px"></i>{% endfor %}</span>
         </div>
@@ -121,12 +103,8 @@
             <form method="post" action="/admin/session-config" hx-post="/admin/session-config" class="cfgform">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}">
               <input type="hidden" name="proposal_id" value="{{ x.p.id }}">
-              <label class="tiny">min minutes<input name="min_minutes" type="number" min="0" step="5" value="{{ x.p.min_minutes or '' }}" placeholder="1 slot"></label>
               <label class="tiny">min interest<input name="min_interest_override" type="number" min="0" value="{{ x.p.min_interest_override if x.p.min_interest_override is not none else '' }}" placeholder="default {{ rnd.min_interest }}"></label>
               <label class="tiny">max attendees<input name="max_attendees" type="number" min="1" value="{{ x.p.max_attendees or '' }}" placeholder="room cap"></label>
-              <label class="ck"><input type="checkbox" name="must_run" value="1" {% if x.p.must_run %}checked{% endif %}> force-run</label>
-              <label class="ck"><input type="checkbox" name="allow_repeat" value="1" {% if x.p.allow_repeat %}checked{% endif %}> allow repeat</label>
-              <label class="ck"><input type="checkbox" name="no_room" value="1" {% if not x.p.needs_space %}checked{% endif %}> no room (elsewhere)</label>
               <button class="btn small">save</button>
             </form>
           </details>
@@ -166,19 +144,8 @@
           <input type="hidden" name="timeslot_id" value="{{ ts.id }}">
           <fieldset class="rooms-pick">
             {% for r in rooms %}<label class="ck"><input type="checkbox" name="room_ids" value="{{ r.id }}"
-              {% if r.id in ts_rooms[ts.id] %}checked{% endif %}> {{ r.name }}
-              {% if ts_caps.get((ts.id, r.id)) is not none %}<span class="capset" title="capacity set to {{ ts_caps.get((ts.id, r.id)) }} for this slot">∗{{ ts_caps.get((ts.id, r.id)) }}</span>{% endif %}</label>{% endfor %}
+              {% if r.id in ts_rooms[ts.id] %}checked{% endif %}> {{ r.name }}</label>{% endfor %}
           </fieldset>
-          {# optional, hidden by default: per-slot capacity overrides #}
-          <details class="mini"><summary>capacity overrides</summary>
-            <div class="caps-grid">
-            {% for r in rooms %}<label class="tiny caprow">{{ r.name }}
-              <input class="capov" name="cap_{{ r.id }}" type="number" min="1"
-                     value="{{ ts_caps.get((ts.id, r.id)) if ts_caps.get((ts.id, r.id)) is not none else '' }}"
-                     placeholder="{{ r.capacity }}"></label>{% endfor %}
-            </div>
-            <span class="muted tiny">blank = room default</span>
-          </details>
           <button class="lnk">save rooms</button>
         </form>
       </div>
@@ -207,7 +174,7 @@
 
     <div class="rail-sec scroll">
       <h2 class="rail-label">People <small>{{ diag.n_rated }} rated</small></h2>
-      <div class="muted tiny" style="margin-bottom:.3rem">Tap a name to toggle present/away · “merge” folds a duplicate person.</div>
+      <div class="muted tiny" style="margin-bottom:.3rem">Tap a name to toggle present/away.</div>
       {% for pp in participants %}
       <span class="person-row">
         <form method="post" action="/admin/present" hx-post="/admin/present" class="person">
@@ -216,15 +183,6 @@
           <input type="hidden" name="present" value="{{ 0 if pp.present else 1 }}">
           <button class="present-btn {% if pp.present %}here{% else %}away{% endif %}">{{ pp.u.display_name }}</button>
         </form>
-        <details class="mini inline"><summary>merge</summary>
-          <form method="post" action="/admin/merge-participants" hx-post="/admin/merge-participants" class="merge">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}">
-            <input type="hidden" name="source_id" value="{{ pp.u.id }}">
-            <select name="target_id"><option value="">{{ pp.u.display_name }} → …</option>
-              {% for q in participants if q.u.id != pp.u.id %}<option value="{{ q.u.id }}">{{ q.u.display_name }}</option>{% endfor %}
-            </select><button class="lnk">merge</button>
-          </form>
-        </details>
       </span>
       {% else %}<div class="muted tiny">No participants yet.</div>{% endfor %}
     </div>
@@ -330,7 +288,7 @@
       {% elif diag.n_proposals == 0 %}
         <div class="diag ok">✓ Board ready. Now add sessions (left rail) or have people propose &amp; rate at the participant link.</div>
       {% elif diag.n_eligible == 0 %}
-        <div class="diag warn">⚠ <b>No sessions are eligible yet.</b> {{ diag.n_proposals }} proposed · {{ diag.n_rated }} {{ 'person has' if diag.n_rated == 1 else 'people have' }} rated, but none reached the interest bar (≥{{ rnd.min_interest }} people at ★3+). Get ratings, lower “min interest”, or force-run a session.</div>
+        <div class="diag warn">⚠ <b>No sessions are eligible yet.</b> {{ diag.n_proposals }} proposed · {{ diag.n_rated }} {{ 'person has' if diag.n_rated == 1 else 'people have' }} rated, but none reached the interest bar (≥{{ rnd.min_interest }} people at ★3+). Get ratings, lower “min interest”, or place a session by hand.</div>
       {% elif diag.n_placed == 0 %}
         <div class="diag ok">✓ <b>{{ diag.n_eligible }}</b> eligible session{{ 's' if diag.n_eligible != 1 }} — click <b>⚙ Generate</b>.</div>
       {% else %}

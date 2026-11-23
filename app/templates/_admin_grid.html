@@ -2,7 +2,7 @@
   <div class="matrix-wrap">
     {% if pin_conflicts %}<div class="warn">⚠ {{ pin_conflicts|length }} pin(s) couldn't be honored (room/slot unavailable).</div>{% endif %}
     <table class="matrix">
-      <thead><tr><th class="corner">slot ▸ room</th>{% for r in rooms %}<th>{{ r.name }}<small>{{ r.capacity }}</small></th>{% endfor %}{% if show_elsewhere %}<th class="elsewhere-col">Elsewhere<small>no room</small></th>{% endif %}</tr></thead>
+      <thead><tr><th class="corner">slot ▸ room</th>{% for r in rooms %}<th>{{ r.name }}<small>{{ r.capacity }}</small></th>{% endfor %}</tr></thead>
       <tbody>
         {% for ts in timeslots %}
         <tr>
@@ -26,7 +26,7 @@
                   <div class="card">
                     <div class="ct">{{ titles.get(pl.proposal_id) }}</div>
                     {% if cs %}<div class="bar"><i style="width:{{ (100 * cs.projected_attendance / cs.capacity) if cs.capacity else 0 }}%"></i></div>
-                    <div class="meta">{{ cs.projected_attendance }}/{{ cs.capacity }}{% if ts_caps.get((ts.id, r.id)) is not none %}<span class="capset" title="capacity set for this slot">∗</span>{% endif %}{% if cs.overflow > 0 %} · <span class="ov">+{{ cs.overflow }} over</span>{% endif %}</div>{% endif %}
+                    <div class="meta">{{ cs.projected_attendance }}/{{ cs.capacity }}{% if cs.overflow > 0 %} · <span class="ov">+{{ cs.overflow }} over</span>{% endif %}</div>{% endif %}
                     <div class="card-actions">
                       <form method="post" action="/admin/pin" hx-post="/admin/pin" hx-target="#console-main" hx-swap="outerHTML"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><input type="hidden" name="placement_id" value="{{ pl.id }}"><input type="hidden" name="pinned" value="{{ 0 if pl.pinned else 1 }}"><button class="lnk {% if pl.pinned %}pinned{% endif %}">{{ '📌 pinned' if pl.pinned else 'pin' }}</button></form>
                       <form method="post" action="/admin/drop" hx-post="/admin/drop" hx-target="#console-main" hx-swap="outerHTML"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><input type="hidden" name="placement_id" value="{{ pl.id }}"><button class="lnk">drop</button></form>
@@ -48,30 +48,6 @@
               <td class="cell na">·</td>
             {% endif %}
           {% endfor %}
-          {% if show_elsewhere %}
-          <td class="cell elsewhere-cell">
-            {% for pl in elsewhere[ts.id] %}
-              {% set cs = cellstats.get((ts.id, pl.proposal_id)) %}
-              <div class="card">
-                <div class="ct">{{ titles.get(pl.proposal_id) }}</div>
-                {% if cs %}<div class="meta">{{ cs.projected_attendance }} attending{% if cs.capacity %} / {{ cs.capacity }} cap{% endif %}</div>{% endif %}
-                <div class="card-actions">
-                  <form method="post" action="/admin/pin" hx-post="/admin/pin" hx-target="#console-main" hx-swap="outerHTML"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><input type="hidden" name="placement_id" value="{{ pl.id }}"><input type="hidden" name="pinned" value="{{ 0 if pl.pinned else 1 }}"><button class="lnk {% if pl.pinned %}pinned{% endif %}">{{ '📌 pinned' if pl.pinned else 'pin' }}</button></form>
-                  <form method="post" action="/admin/drop" hx-post="/admin/drop" hx-target="#console-main" hx-swap="outerHTML"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><input type="hidden" name="placement_id" value="{{ pl.id }}"><button class="lnk">drop</button></form>
-                </div>
-              </div>
-            {% endfor %}
-            {% if elsewhere_unplaced %}
-              <form method="post" action="/admin/place-elsewhere" class="place" hx-post="/admin/place-elsewhere" hx-target="#console-main" hx-swap="outerHTML">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}">
-                <input type="hidden" name="timeslot_id" value="{{ ts.id }}">
-                <select name="proposal_id" onchange="this.form.requestSubmit()"><option value="">＋ place…</option>
-                  {% for x in elsewhere_unplaced %}<option value="{{ x.p.id }}">{{ x.p.title }}</option>{% endfor %}
-                </select>
-              </form>
-            {% endif %}
-          </td>
-          {% endif %}
         </tr>
         {% endfor %}
       </tbody>

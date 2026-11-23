@@ -54,14 +54,8 @@ class Proposal(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="active")  # active|retired
     created_by: Mapped[int] = mapped_column(ForeignKey("participants.id"))
-    slots_needed: Mapped[int] = mapped_column(Integer, default=1)
-    allow_repeat: Mapped[bool] = mapped_column(Boolean, default=False)
-    min_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)  # min duration; derives slots
     min_interest_override: Mapped[int | None] = mapped_column(Integer, nullable=True)
     max_attendees: Mapped[int | None] = mapped_column(Integer, nullable=True)  # host seat cap (small workshop)
-    anonymous: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())  # hide the proposer's name
-    needs_space: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())  # False = "elsewhere", no room
-    must_run: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())  # schedule regardless of interest
     merged_into: Mapped[int | None] = mapped_column(
         ForeignKey("proposals.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
@@ -122,7 +116,6 @@ class TimeslotRoom(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     timeslot_id: Mapped[int] = mapped_column(ForeignKey("timeslots.id"))
     room_id: Mapped[int] = mapped_column(ForeignKey("rooms.id"))
-    capacity: Mapped[int | None] = mapped_column(Integer, nullable=True)  # overrides Room.capacity for this slot
 
 
 class Placement(Base):
@@ -130,11 +123,8 @@ class Placement(Base):
     __table_args__ = (UniqueConstraint("timeslot_id", "room_id"),)
     id: Mapped[int] = mapped_column(primary_key=True)
     timeslot_id: Mapped[int] = mapped_column(ForeignKey("timeslots.id"), index=True)
-    # NULL room = an "elsewhere" session that needs no room; SQLite treats NULLs as
-    # distinct so multiple roomless sessions can share a timeslot.
-    room_id: Mapped[int | None] = mapped_column(ForeignKey("rooms.id"), nullable=True)
+    room_id: Mapped[int] = mapped_column(ForeignKey("rooms.id"))
     proposal_id: Mapped[int] = mapped_column(ForeignKey("proposals.id"), index=True)
-    span: Mapped[int] = mapped_column(Integer, default=1)
     pinned: Mapped[bool] = mapped_column(Boolean, default=False)
 
 

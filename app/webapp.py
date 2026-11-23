@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
@@ -11,7 +10,7 @@ log = logging.getLogger("breakouts")
 
 from alembic import command
 from alembic.config import Config as AlembicConfig
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import inspect
 from fastapi.templating import Jinja2Templates
@@ -19,35 +18,11 @@ from fastapi.templating import Jinja2Templates
 from app.config import Settings, load_settings
 from app.db import make_engine, make_session_factory
 from app.models import Base
-from app.services.preview import PreviewCache
 from app.services.backup import backup_once
 from app.ratelimit import Limiter
 
 TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
-
-
-def _preview_loop(app: FastAPI):
-    from app.services.rounds import solve_round
-    state = app.state
-
-    def solve(round_id: int):
-        s = state.session_factory()
-        try:
-            return solve_round(s, round_id)
-        finally:
-            s.close()
-
-    async def loop():
-        while True:
-            try:
-                # solve OFF the event loop — CP-SAT is blocking (up to MAX_TIME_S)
-                await asyncio.to_thread(state.preview_cache.refresh_due,
-                                        time.monotonic(), solve)
-            except Exception:  # never let the loop die on one bad solve — but log it
-                log.exception("preview solve loop iteration failed")
-            await asyncio.sleep(state.settings.preview_interval_s)
-    return loop
 
 
 def _session_alert_loop(app: FastAPI):
@@ -132,8 +107,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        tasks = [asyncio.create_task(_preview_loop(app)()),
-                 asyncio.create_task(_session_alert_loop(app)()),
+        tasks = [asyncio.create_task(_session_alert_loop(app)()),
                  asyncio.create_task(_backup_loop(app)())]
         try:
             yield
@@ -160,7 +134,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.engine = engine
     app.state.session_factory = make_session_factory(engine)
-    app.state.preview_cache = PreviewCache(settings.preview_interval_s)
     app.state.limiter = Limiter()
     app.state.session_alert_sent = set()  # timeslot ids already warned (this process)
     app.state.eval_cache = {}  # round_id -> (fingerprint, Result) for the console grid

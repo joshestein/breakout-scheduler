@@ -18,11 +18,9 @@ def current_round_id(session: Session, event_id: int) -> int | None:
 
 
 def propose(session: Session, *, event_id: int, title: str, created_by: int,
-            description: str | None = None, slots_needed: int = 1,
-            allow_repeat: bool = False, runner: bool = True,
+            description: str | None = None, runner: bool = True,
             round_id: int | None = None, min_interest_override: int | None = None,
-            max_attendees: int | None = None, anonymous: bool = False,
-            needs_space: bool = True) -> Proposal:
+            max_attendees: int | None = None) -> Proposal:
     title = title.strip()
     if not title:
         raise ValueError("title required")
@@ -34,42 +32,28 @@ def propose(session: Session, *, event_id: int, title: str, created_by: int,
     if lo is not None and hi is not None and lo > hi:
         lo = hi   # an impossible floor above the cap is clamped, not rejected
     p = Proposal(event_id=event_id, round_id=round_id, title=title,
-                 description=(description or None), created_by=created_by,
-                 slots_needed=slots_needed, allow_repeat=allow_repeat, status="active",
-                 min_interest_override=lo, max_attendees=hi, anonymous=anonymous,
-                 needs_space=needs_space)
+                 description=(description or None), created_by=created_by, status="active",
+                 min_interest_override=lo, max_attendees=hi)
     session.add(p)
     session.flush()
     # proposer is a runner by default (must be present); organizer-added topics
     # pass runner=False so nobody is forced to be present until someone opts in.
-    # an anonymous proposer is NOT auto-made a runner — being a named runner would
-    # undo the anonymity. They can still opt to run it later if they choose.
-    if runner and not anonymous:
+    if runner:
         set_runner(session, p.id, created_by, True)
         session.flush()
     return p
 
 
-def set_config(session: Session, proposal_id: int, *, min_minutes="keep",
-               allow_repeat: bool | None = None, must_run: bool | None = None,
-               min_interest_override="keep", max_attendees="keep",
-               needs_space: bool | None = None) -> None:
+def set_config(session: Session, proposal_id: int, *,
+               min_interest_override="keep", max_attendees="keep") -> None:
     """Update per-session scheduling config. Pass a value to change it; omit to keep.
-    `min_interest_override`/`min_minutes`/`max_attendees` accept None to clear."""
+    Both accept None to clear."""
     p = session.get(Proposal, proposal_id)
-    if min_minutes != "keep":
-        p.min_minutes = min_minutes if (min_minutes or 0) > 0 else None
-    if allow_repeat is not None:
-        p.allow_repeat = allow_repeat
-    if must_run is not None:
-        p.must_run = must_run
     if min_interest_override != "keep":
         p.min_interest_override = (min_interest_override
                                    if min_interest_override is not None else None)
     if max_attendees != "keep":
         p.max_attendees = max_attendees if (max_attendees or 0) > 0 else None
-    if needs_space is not None:
-        p.needs_space = needs_space
     # keep the same invariant as propose(): an impossible floor above the cap is clamped
     if (p.min_interest_override is not None and p.max_attendees is not None
             and p.min_interest_override > p.max_attendees):

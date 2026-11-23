@@ -34,10 +34,7 @@ Then they:
   a proposer can:
   - add a short **description** (only when the organizer has enabled descriptions for the event);
   - set a **maximum** attendance (for an intimate workshop) or a **minimum** below which
-    the session shouldn't run;
-  - mark the session as needing **no room** — it happens *elsewhere* (a walk, the lawn,
-    a hallway). Roomless sessions are uncapped and any number can share a timeslot;
-  - post the proposal **anonymously**, hiding their name from the organizer console.
+    the session shouldn't run.
 - **Rate** each proposal **1–5 stars** (1 = won't go … 5 = must). Ratings ≥ 3 count as
   "would attend". New proposals from others stream in without disturbing what they're
   looking at.
@@ -53,14 +50,13 @@ Then they:
 Organizers enter the admin code and get a dense console:
 
 - A **fairness slider** trading off popularity against coverage (the λ in the model below).
-- The live **schedule grid** (timeslots × rooms, plus an "Elsewhere" column for roomless
-  sessions) with a **Generate** button that runs the solver, and **pin / drop / move /
+- The live **schedule grid** (timeslots × rooms) with a **Generate** button that runs the solver, and **pin / drop / move /
   place** controls to hand-tune placements and re-solve around the pins.
 - A **consequences panel** showing, for the current grid: per-slot **coverage %**, who's
   **left out**, who **found nothing they'd attend**, the share of people who got a
   **most-preferred** session, **capacity overflows**, and the top **unplaced** sessions.
-- Per-session settings (min/max attendees, force-run, allow-repeat, multi-slot length,
-  no-room), **merge** for duplicate people, and **edit/delete** of rooms and timeslots.
+- Per-session settings (min/max attendees), **merge** for duplicate proposals, and
+  **edit/delete** of rooms and timeslots.
 - A per-event toggle for whether participants may add **descriptions**.
 - **Publish**, which freezes the lineup attendees see into a snapshot. Edits made after
   publishing stay private; the console warns that the published schedule has drifted and
@@ -77,7 +73,7 @@ The schedule is computed by an OR-Tools **CP-SAT** solver (`app/solver.py`), bui
 the database by a pure function (`app/solver_input.py`). It maximizes:
 
 ```
-satisfied weighted interest  −  λ · (people left with nothing they'd attend)  +  force-run bonus
+satisfied weighted interest  −  λ · (people left with nothing they'd attend)
 ```
 
 subject to:
@@ -88,13 +84,10 @@ subject to:
 - **Per-session max attendees** (host cap) is an additional hard seat cap; the effective
   cap is the tighter of the room and the host's number. Runners always fit.
 - **Per-session min attendees** is a hard eligibility gate — a session below the threshold
-  of interested people isn't scheduled (unless forced to run).
-- **No-room ("elsewhere") sessions** have no room cap and don't compete for rooms, so many
-  can run in the same timeslot.
+  of interested people isn't scheduled.
 - **Runner presence**: a session's runner can't be in two places at once, and is seated in
   their own session when it runs.
-- **Multi-slot** sessions span consecutive timeslots; **repeatable** sessions may run more
-  than once.
+- Each session runs **at most once**, in one room and one timeslot.
 
 The grid the organizer sees is *scored* (not re-solved) on a content-addressed cache, so
 the console doesn't re-run the solver unless something actually changed. The full re-solve
@@ -111,7 +104,6 @@ Weighting ramps so enthusiasm dominates: stars map to weights `1–2 → 0` (won
 | `DB_PATH` | `data/app.db` | SQLite file (on the mounted volume in Docker). |
 | `BACKUP_DIR` | `data/backups` | Where periodic online backups are written. |
 | `BACKUP_INTERVAL_S` | `300` | Seconds between automatic backups. |
-| `PREVIEW_INTERVAL_S` | `3` | Debounce for the background preview solve. |
 | `BOOTSTRAP_ADMIN_CODE` | unset | If set, required to create the *first* event, then disabled. |
 | `COOKIE_SECURE` | `0` | Set to `1` behind a TLS-terminating proxy (e.g. Cloudflare Tunnel) so cookies get the `Secure` flag. |
 | `BASE_URL` | derived | Canonical public origin for share links (else derived from the request). |
@@ -221,7 +213,7 @@ Treat `cert.pem` and the credentials JSON as secrets; keep them on the host only
 
 - `app/solver.py`, `app/solver_input.py` — the CP-SAT model and the DB→problem builder; pure
   functions, unit-tested on fixtures (the riskiest logic).
-- `app/services/` — rounds, proposals, ratings, participants, push, backup, preview.
+- `app/services/` — rounds, proposals, ratings, push, backup.
 - `app/routers/` — `events` (join/create), `participant` (propose/rate/schedule), `admin`
   (console), `push`.
 - `app/templates/`, `app/static/` — htmx + Jinja UI.

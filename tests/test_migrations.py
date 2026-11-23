@@ -27,8 +27,8 @@ def test_alembic_upgrade_head_on_fresh_db():
         cols = {c["name"] for c in inspect(create_engine(f"sqlite:///{db}"))
                 .get_columns("proposals")}
         # columns added across the migration chain are all present
-        assert {"round_id", "min_interest_override", "max_attendees",
-                "anonymous", "must_run"} <= cols
+        assert {"round_id", "min_interest_override", "max_attendees"} <= cols
+        assert not {"anonymous", "must_run", "allow_repeat", "needs_space"} & cols
 
 
 def test_migrated_schema_matches_create_all():

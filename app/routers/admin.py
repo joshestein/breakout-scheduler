@@ -16,7 +16,6 @@ from app.scoping import (owned_round, owned_proposal, owned_timeslot, owned_plac
 from app.services import proposals as P
 from app.services import rounds as RD
 from app.services import push as PUSH
-from app.services import participants as PART
 
 router = APIRouter(prefix="/admin")
 
@@ -66,14 +65,13 @@ def _eval_fingerprint(session: Session, rnd: Round) -> tuple:
     prop_ids = [p.id for p in props]
     def rows(stmt):
         return tuple(sorted(stmt)) if stmt else ()
-    tr = rows([(x.timeslot_id, x.room_id, x.capacity) for x in session.scalars(
+    tr = rows([(x.timeslot_id, x.room_id) for x in session.scalars(
         select(TimeslotRoom).where(TimeslotRoom.timeslot_id.in_(ts_ids)))] if ts_ids else [])
     rooms_fp = rows([(r.id, r.capacity) for r in session.scalars(
         select(Room).where(Room.event_id == rnd.event_id))])
     props_fp = rows([(p.id, p.status, p.merged_into or 0, p.min_interest_override or -1,
-                      p.max_attendees or -1, p.must_run, p.needs_space, p.slots_needed,
-                      p.allow_repeat, p.min_minutes or 0) for p in props])
-    pls_fp = rows([(pl.timeslot_id, pl.room_id or 0, pl.proposal_id, pl.span)
+                      p.max_attendees or -1) for p in props])
+    pls_fp = rows([(pl.timeslot_id, pl.room_id, pl.proposal_id)
                    for pl in session.scalars(
                        select(Placement).where(Placement.timeslot_id.in_(ts_ids)))] if ts_ids else [])
     ratings_fp = rows([(r.participant_id, r.proposal_id, r.stars) for r in session.scalars(
@@ -98,8 +96,7 @@ def _context(request: Request, session: Session, event: Event, rnd: Round | None
     names = {u.id: u.display_name for u in session.scalars(
         select(Participant).where(Participant.event_id == event.id))}
 
-    pool = [{"p": p, "by": (None if p.anonymous else names.get(p.created_by)),
-             "anon": p.anonymous, **_agg(session, p.id)}
+    pool = [{"p": p, "by": names.get(p.created_by), **_agg(session, p.id)}
             for p in proposals]
     pool.sort(key=lambda x: (-x["interested"], x["p"].id))
 
@@ -117,23 +114,13 @@ def _context(request: Request, session: Session, event: Event, rnd: Round | None
 
     timeslots = list(session.scalars(select(Timeslot).where(
         Timeslot.round_id == rnd.id).order_by(Timeslot.position)))
-    ts_rooms: dict[int, set[int]] = {}
-    ts_caps: dict[tuple[int, int], int | None] = {}
-    for ts in timeslots:
-        ids = set()
-        for tr in session.scalars(select(TimeslotRoom).where(TimeslotRoom.timeslot_id == ts.id)):
-            ids.add(tr.room_id)
-            ts_caps[(ts.id, tr.room_id)] = tr.capacity
-        ts_rooms[ts.id] = ids
+    ts_rooms = {ts.id: {tr.room_id for tr in session.scalars(
+        select(TimeslotRoom).where(TimeslotRoom.timeslot_id == ts.id))} for ts in timeslots}
     placements = {}
-    elsewhere: dict[int, list] = {ts.id: [] for ts in timeslots}   # roomless placements per slot
     placed_ids = set()
     for ts in timeslots:
         for pl in session.scalars(select(Placement).where(Placement.timeslot_id == ts.id)):
-            if pl.room_id is None:
-                elsewhere[ts.id].append(pl)
-            else:
-                placements[(ts.id, pl.room_id)] = pl
+            placements[(ts.id, pl.room_id)] = pl
             placed_ids.add(pl.proposal_id)
 
     # presence
@@ -184,11 +171,6 @@ def _context(request: Request, session: Session, event: Event, rnd: Round | None
     cellstats = {(pl.slot_id, pl.candidate_id): pl for pl in result.placements}
 
     unplaced = [x for x in pool if x["p"].id not in placed_ids]
-    # ANY unplaced session can be sent to "Elsewhere" (no room) — useful for overflow,
-    # and multiple can share one slot. Sessions the proposer marked no-room sort first.
-    elsewhere_unplaced = sorted(unplaced, key=lambda x: x["p"].needs_space)
-    # show the column when it's usable (something to place, or already-placed elsewhere)
-    show_elsewhere = bool(unplaced) or any(elsewhere.values())
 
     # diagnostics: why is the grid empty? (the #1 "solver doesn't work" cause)
     prop_ids = [p.id for p in session.scalars(select(Proposal).where(
@@ -198,28 +180,6 @@ def _context(request: Request, session: Session, event: Event, rnd: Round | None
         rated_count = session.scalar(select(func.count(func.distinct(Rating.participant_id)))
                                      .where(Rating.proposal_id.in_(prop_ids))) or 0
 
-    # carry-over: proposals from the PREVIOUS round that never ran, offered for
-    # re-adding into this round (as fresh proposals — votes are NOT reused).
-    prev = session.scalar(select(Round).where(
-        Round.event_id == event.id, Round.id < rnd.id).order_by(Round.id.desc()))
-    prev_unrun = []
-    if prev is not None:
-        prev_ts = [t.id for t in session.scalars(
-            select(Timeslot).where(Timeslot.round_id == prev.id))]
-        ran = set()
-        if prev_ts:
-            ran = {pl.proposal_id for pl in session.scalars(
-                select(Placement).where(Placement.timeslot_id.in_(prev_ts)))}
-        current_titles = {p.title.strip().lower() for p in proposals}
-        seen = set()
-        for p in session.scalars(select(Proposal).where(
-                Proposal.round_id == prev.id, Proposal.merged_into.is_(None))
-                .order_by(Proposal.id)):
-            key = p.title.strip().lower()
-            if p.id in ran or key in seen or key in current_titles:
-                continue
-            seen.add(key)
-            prev_unrun.append(p.title)
     n_eligible = sum(1 for x in pool if x["interested"] >= rnd.min_interest)
     slot_no_rooms = [ts.name for ts in timeslots if not ts_rooms[ts.id]]
     diag = {
@@ -232,16 +192,14 @@ def _context(request: Request, session: Session, event: Event, rnd: Round | None
     }
 
     ctx.update({
-        "timeslots": timeslots, "ts_rooms": ts_rooms, "ts_caps": ts_caps, "placements": placements,
-        "elsewhere": elsewhere, "show_elsewhere": show_elsewhere,
-        "elsewhere_unplaced": elsewhere_unplaced,
+        "timeslots": timeslots, "ts_rooms": ts_rooms, "placements": placements,
         "placed_ids": placed_ids, "participants": participants,
         "coverage": cov, "left_out": left, "forced": forced, "cellstats": cellstats,
         "total_interest": result.total_interest, "unplaced": unplaced,
         "n_present": result.n_present, "no_interest": no_interest,
         "top_choice_pct": result.top_choice_pct,
         "published_drift": RD.published_drift(session, rnd.id) if rnd.status == "published" else False,
-        "pin_conflicts": result.pin_conflicts, "diag": diag, "prev_unrun": prev_unrun,
+        "pin_conflicts": result.pin_conflicts, "diag": diag,
     })
     return ctx
 
@@ -340,7 +298,6 @@ def timeslot_edit(request: Request, round_id: int = Form(...), timeslot_id: int 
     owned_round(session, round_id, event.id)
     owned_timeslot(session, timeslot_id, event.id)
     RD.edit_timeslot(session, timeslot_id, name=name, duration_minutes=duration_minutes)
-    request.app.state.preview_cache.mark_dirty(round_id)
     return _respond(request, session, event, round_id)
 
 
@@ -352,7 +309,6 @@ def timeslot_delete(request: Request, round_id: int = Form(...), timeslot_id: in
     owned_round(session, round_id, event.id)
     owned_timeslot(session, timeslot_id, event.id)
     RD.delete_timeslot(session, timeslot_id)
-    request.app.state.preview_cache.mark_dirty(round_id)
     return _respond(request, session, event, round_id)
 
 
@@ -365,20 +321,6 @@ def proposal_edit(request: Request, round_id: int = Form(...), proposal_id: int 
     owned_proposal(session, proposal_id, event.id)
     if title.strip():
         P.edit_title(session, proposal_id, title)
-        request.app.state.preview_cache.mark_dirty(round_id)
-    return _respond(request, session, event, round_id)
-
-
-@router.post("/merge-participants")
-def merge_participants(request: Request, round_id: int = Form(...), source_id: int = Form(...),
-                       target_id: int = Form(...), token=Depends(require_admin),
-                       session: Session = Depends(get_session), _: None = Depends(require_csrf)):
-    event = _event_of(session, token)
-    owned_round(session, round_id, event.id)
-    owned_participant(session, source_id, event.id)
-    owned_participant(session, target_id, event.id)
-    PART.merge_participants(session, source_id=source_id, target_id=target_id)
-    request.app.state.preview_cache.mark_dirty(round_id)
     return _respond(request, session, event, round_id)
 
 
@@ -419,50 +361,35 @@ def add_session(request: Request, round_id: int = Form(...), title: str = Form(.
         # auto-added as a runner (it's a topic on behalf of the room).
         P.propose(session, event_id=event.id, title=title, created_by=me.id,
                   runner=False, round_id=round_id)
-        request.app.state.preview_cache.mark_dirty(round_id)
     return _respond(request, session, event, round_id)
 
 
 @router.post("/timeslot-rooms")
-async def timeslot_rooms(request: Request, round_id: int = Form(...),
-                         timeslot_id: int = Form(...), room_ids: list[int] = Form([]),
-                         token=Depends(require_admin),
-                         session: Session = Depends(get_session),
-                         _: None = Depends(require_csrf)):
+def timeslot_rooms(request: Request, round_id: int = Form(...),
+                   timeslot_id: int = Form(...), room_ids: list[int] = Form([]),
+                   token=Depends(require_admin),
+                   session: Session = Depends(get_session),
+                   _: None = Depends(require_csrf)):
     event = _event_of(session, token)
     owned_round(session, round_id, event.id)
     owned_timeslot(session, timeslot_id, event.id)
     for rid in room_ids:
-        r = session.get(Room, rid)
-        if r is None or r.event_id != event.id:
-            raise HTTPException(status_code=404, detail="room not in this event")
-    form = await request.form()
-    caps: dict[int, int | None] = {}
-    for rid in room_ids:
-        v = form.get(f"cap_{rid}")
-        caps[rid] = int(v) if (v and str(v).isdigit() and int(v) >= 1) else None
-    RD.set_timeslot_rooms(session, timeslot_id=timeslot_id, room_ids=room_ids, caps=caps)
-    request.app.state.preview_cache.mark_dirty(round_id)
+        owned_room(session, rid, event.id)
+    RD.set_timeslot_rooms(session, timeslot_id=timeslot_id, room_ids=room_ids)
     return _respond(request, session, event, round_id)
 
 
 @router.post("/session-config")
 def session_config(request: Request, round_id: int = Form(...), proposal_id: int = Form(...),
-                   min_minutes: str = Form(""), allow_repeat: int = Form(0),
-                   must_run: int = Form(0), min_interest_override: str = Form(""),
-                   max_attendees: str = Form(""), no_room: int = Form(0),
+                   min_interest_override: str = Form(""), max_attendees: str = Form(""),
                    token=Depends(require_admin), session: Session = Depends(get_session),
                    _: None = Depends(require_csrf)):
     event = _event_of(session, token)
     owned_round(session, round_id, event.id)
     owned_proposal(session, proposal_id, event.id)
-    mm = int(min_minutes) if min_minutes.strip().isdigit() else None
     mio = int(min_interest_override) if min_interest_override.strip().isdigit() else None
     mx = int(max_attendees) if max_attendees.strip().isdigit() else None
-    P.set_config(session, proposal_id, min_minutes=mm, allow_repeat=bool(allow_repeat),
-                 must_run=bool(must_run), min_interest_override=mio, max_attendees=mx,
-                 needs_space=not bool(no_room))
-    request.app.state.preview_cache.mark_dirty(round_id)
+    P.set_config(session, proposal_id, min_interest_override=mio, max_attendees=mx)
     return _respond(request, session, event, round_id)
 
 
@@ -477,7 +404,6 @@ def round_settings(request: Request, round_id: int = Form(...),
     rnd.lambda_fairness = lambda_fairness
     rnd.min_interest = min_interest
     session.flush()
-    request.app.state.preview_cache.mark_dirty(round_id)
     return _respond(request, session, event, round_id)
 
 
@@ -495,7 +421,6 @@ def solve(request: Request, round_id: int = Form(...), pin_started: int = Form(1
         RD.pin_started_placements(session, round_id)
     result = RD.solve_round(session, round_id, lam=rnd.lambda_fairness)
     RD.apply_result(session, round_id, result)
-    request.app.state.preview_cache.mark_dirty(round_id)
     return _respond(request, session, event, round_id)
 
 
@@ -576,23 +501,6 @@ def event_descriptions(request: Request, round_id: int = Form(...), enabled: int
     return _respond(request, session, event, round_id)
 
 
-@router.post("/place-elsewhere")
-def place_elsewhere(request: Request, round_id: int = Form(...), timeslot_id: int = Form(...),
-                    proposal_id: int = Form(...), token=Depends(require_admin),
-                    session: Session = Depends(get_session), _: None = Depends(require_csrf)):
-    """Place a session into a timeslot with no room (it happens elsewhere)."""
-    event = _event_of(session, token)
-    owned_timeslot(session, timeslot_id, event.id)
-    owned_proposal(session, proposal_id, event.id)
-    _same_round(session, timeslot_id, proposal_id)
-    if session.scalar(select(Placement).where(Placement.timeslot_id == timeslot_id,
-                                              Placement.proposal_id == proposal_id)):
-        raise HTTPException(status_code=409, detail="already placed in this slot")
-    RD.force_place(session, timeslot_id=timeslot_id, room_id=None, proposal_id=proposal_id)
-    request.app.state.preview_cache.mark_dirty(round_id)
-    return _respond(request, session, event, round_id)
-
-
 # ---- proposal & participant management -------------------------------------
 
 @router.post("/merge")
@@ -604,7 +512,6 @@ def merge(request: Request, round_id: int = Form(...), source_id: int = Form(...
     owned_proposal(session, source_id, event.id)
     owned_proposal(session, target_id, event.id)
     P.merge(session, source_id=source_id, target_id=target_id)
-    request.app.state.preview_cache.mark_dirty(round_id)
     return _respond(request, session, event, round_id)
 
 
@@ -615,7 +522,6 @@ def retire(request: Request, round_id: int = Form(...), proposal_id: int = Form(
     event = _event_of(session, token)
     owned_proposal(session, proposal_id, event.id)
     P.retire(session, proposal_id)
-    request.app.state.preview_cache.mark_dirty(round_id)
     return _respond(request, session, event, round_id)
 
 
@@ -628,7 +534,6 @@ def present(request: Request, round_id: int = Form(...), participant_id: int = F
     owned_participant(session, participant_id, event.id)
     RD.set_present(session, round_id=round_id, participant_id=participant_id,
                    present=bool(present))
-    request.app.state.preview_cache.mark_dirty(round_id)
     return _respond(request, session, event, round_id)
 
 

@@ -27,7 +27,7 @@
         <ul class="slot-rooms">
           {% for c in slot.cells %}
           <li class="{% if c.key == slot.highlight %}go{% endif %}">
-            <span class="where {% if c.room_id is none %}elsewhere{% endif %}">{{ c.room_label }}</span>
+            <span class="where">{{ c.room_label }}</span>
             <span class="what">{{ c.title }}{% if c.cap %} <span class="cap-chip" title="host caps this at {{ c.cap }}">cap {{ c.cap }}</span>{% endif %}</span>
             {% if c.key == slot.highlight %}<span class="badge">{{ 'most wanted' if public else '→ you' }}</span>{% endif %}
           </li>
