@@ -65,11 +65,10 @@
         <button class="btn small">add</button>
       </form>
       {% for x in pool %}
-      {% set eff = [1, x.p.min_interest_override if x.p.min_interest_override is not none else rnd.min_interest] | max %}
       <div class="pool-item">
         <div class="pi-title"><span class="pi-name">{{ x.p.title }}</span>
           {% if x.p.max_attendees %}<span class="badge2" title="host caps at {{ x.p.max_attendees }} attendees">cap {{ x.p.max_attendees }}</span>{% endif %}
-          {% if x.interested < eff %}<span class="below" title="needs {{ eff }} interested (not counting hosts) to run">won't run</span>{% endif %}
+          {% if not x.eligible %}<span class="below" title="{% if x.hosts_away %}all its hosts are marked away{% else %}needs {{ x.floor }} interested people besides its hosts (present, ★3+) to run{% endif %}">won't run</span>{% endif %}
         </div>
         <div class="pi-agg">
           <span class="pill">♥ {{ x.interested }}</span>

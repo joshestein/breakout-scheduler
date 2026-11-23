@@ -599,3 +599,39 @@ def test_bad_csrf_rejected(app):
     resp = admin.post("/events", data={"name": "X", "participant_code": "p",
                                        "admin_code": "a"}, headers={"X-CSRFToken": "bogus"})
     assert resp.status_code == 400
+
+
+def test_archive_shows_fill_for_snapshots_before_rename(app):
+    # snapshots published before seated_guests existed store projected_attendance
+    import json
+    csrf = _csrf(TestClient(app)); admin = TestClient(app)
+    _post(admin, "/events", csrf, {"name": "R", "participant_code": "p", "admin_code": "a",
+                                   "admin_name": "Org", "rooms": "Lib, 10"})
+    _post(admin, "/admin/round", csrf, {"name": "R1"})
+    sf = app.state.session_factory
+    with sf() as s:
+        s.add(RoundSnapshot(round_id=app_round_id(sf), stats_json='{"total_interest": 0}',
+                            grid_json=json.dumps([{
+                                "timeslot": "14:00", "room": "Lib", "title": "Old",
+                                "projected_attendance": 7, "capacity": 10, "overflow": 0}])))
+        s.commit()
+    assert "7/10" in admin.get("/admin/archive").text
+
+
+def test_console_badge_uses_clamped_floor(app):
+    # round minimum 2, host caps the workshop at 1 guest, 1 guest is keen: it can run,
+    # so the console must not say "won't run"
+    csrf = _csrf(TestClient(app)); admin = TestClient(app)
+    _post(admin, "/events", csrf, {"name": "R", "participant_code": "p", "admin_code": "a",
+                                   "admin_name": "Org", "rooms": "Lib, 10"})
+    _post(admin, "/admin/round", csrf, {"name": "R1"})
+    sf = app.state.session_factory
+    rid = app_round_id(sf)
+    host = TestClient(app); _post(host, "/enter", csrf, {"code": "p", "name": "Host"})
+    _post(host, "/propose", csrf, {"title": "Tiny", "max_attendees": "1"})
+    with sf() as s:
+        pid = s.scalar(select(Proposal).where(Proposal.title == "Tiny")).id
+    guest = TestClient(app); _post(guest, "/enter", csrf, {"code": "p", "name": "Guest"})
+    _post(guest, "/rate", csrf, {"proposal_id": pid, "stars": 5})
+    html = admin.get(f"/admin?round_id={rid}").text
+    assert "Tiny" in html and "won't run" not in html
