@@ -1,0 +1,56 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      # Install deps only: the repo is not an installable package.
+      - run: uv venv --python 3.11 && uv pip install -r pyproject.toml --extra dev
+      - run: .venv/bin/pytest
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build, start, wait for healthy
+        run: docker compose up -d --build --wait --wait-timeout 60 app || { docker compose logs app; exit 1; }
+      - name: Check lazy imports
+        # A health check does not load these; import them explicitly.
+        run: docker compose exec -T app python -c "import pywebpush, ortools"
+
+  deploy:
+    needs: [test, docker]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+      - name: Deploy
+        env:
+          TARGET: ${{ vars.VPS_USER }}@${{ vars.VPS_HOST }}
+          APP_DIR: ${{ vars.VPS_PATH }}
+        run: |
+          ssh -o StrictHostKeyChecking=yes "$TARGET" \
+            "set -e; cd '$APP_DIR'; git fetch --quiet origin; git merge --ff-only '$GITHUB_SHA'; ./scripts/deploy.sh"
