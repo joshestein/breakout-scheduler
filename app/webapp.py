@@ -144,7 +144,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return as_utc(dt).isoformat() if dt else ""
     templates.env.filters["utciso"] = _utciso
     app.state.templates = templates
-    app.state.bootstrap_used = False
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 

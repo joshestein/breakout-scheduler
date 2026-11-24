@@ -43,7 +43,6 @@ def landing(request: Request, session: Session = Depends(get_session)):
     me = load_participant(session, tok)
     event = session.get(Event, me.event_id) if me else None
     bootstrap_required = (request.app.state.settings.bootstrap_admin_code is not None
-                          and not request.app.state.bootstrap_used
                           and session.scalar(select(func.count(Event.id))) == 0)
     return render(request, "landing.html", me=me, event=event,
                   bootstrap_required=bootstrap_required)
@@ -120,12 +119,12 @@ def create_event(request: Request, name: str = Form(...),
                  session: Session = Depends(get_session),
                  _: None = Depends(require_csrf)):
     settings = request.app.state.settings
+    # the first event needs the bootstrap code. A failed request rolls back, so the
+    # gate stays closed until an event really exists.
     if (settings.bootstrap_admin_code is not None
-            and not request.app.state.bootstrap_used
-            and session.scalar(select(func.count(Event.id))) == 0):
-        if not hmac.compare_digest(bootstrap_code, settings.bootstrap_admin_code):
-            raise HTTPException(status_code=403, detail="invalid bootstrap code")
-        request.app.state.bootstrap_used = True
+            and session.scalar(select(func.count(Event.id))) == 0
+            and not hmac.compare_digest(bootstrap_code, settings.bootstrap_admin_code)):
+        raise HTTPException(status_code=403, detail="invalid bootstrap code")
     if participant_code == admin_code:
         raise HTTPException(status_code=400, detail="participant and admin codes must differ")
 
