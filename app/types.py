@@ -55,7 +55,7 @@ class PlacementOut:
 
 @dataclass(frozen=True)
 class Result:
-    status: str                              # "OPTIMAL" | "FEASIBLE" | "INFEASIBLE"
+    status: str                # "OPTIMAL" | "FEASIBLE" | "INFEASIBLE" | "UNKNOWN" (timed out)
     placements: list[PlacementOut]
     total_interest: int
     n_present: int                           # engaged+present people (coverage denominator)
