@@ -175,8 +175,9 @@ def build_and_solve(problem: Problem) -> Result:
     solver = _new_solver()
     status = solver.solve(m)
     ok = status in (cp_model.OPTIMAL, cp_model.FEASIBLE)
-    status_name = {cp_model.OPTIMAL: "OPTIMAL",
-                   cp_model.FEASIBLE: "FEASIBLE"}.get(status, "INFEASIBLE")
+    # UNKNOWN: the time limit ended before the solver found any schedule
+    status_name = {cp_model.OPTIMAL: "OPTIMAL", cp_model.FEASIBLE: "FEASIBLE",
+                   cp_model.INFEASIBLE: "INFEASIBLE"}.get(status, "UNKNOWN")
     val = solver.value
 
     max_of = {c.id: c.max_attendees for c in problem.candidates}
