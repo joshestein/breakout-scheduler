@@ -39,7 +39,7 @@ def _current_round(session: Session, event_id: int, round_id: int | None) -> Rou
     if round_id:
         return owned_round(session, round_id, event_id)
     return session.scalar(select(Round).where(
-        Round.event_id == event_id, Round.status != "archived").order_by(Round.id.desc()))
+        Round.event_id == event_id).order_by(Round.id.desc()))
 
 
 def _eval_fingerprint(session: Session, rnd: Round) -> tuple:

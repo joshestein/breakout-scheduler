@@ -5,11 +5,11 @@
   <aside class="rail" id="left-rail" data-keep="rail">
     <div class="rail-sec">
       <h2>{{ event.name }}</h2>
-      {% set open_rounds = all_rounds | selectattr('status', 'in', ['draft', 'collecting']) | list %}
+      {% set open_rounds = all_rounds | selectattr('status', 'eq', 'collecting') | list %}
       {% if open_rounds %}
       <div class="seg">
         {% for r in open_rounds %}
-          <a class="{% if rnd and r.id == rnd.id %}on{% endif %}" href="/admin?round_id={{ r.id }}">{{ r.name }}<small>{{ 'Collecting ratings' if r.status == 'collecting' else 'Draft' }}</small></a>
+          <a class="{% if rnd and r.id == rnd.id %}on{% endif %}" href="/admin?round_id={{ r.id }}">{{ r.name }}<small>Collecting ratings</small></a>
         {% endfor %}
       </div>
       {% endif %}
@@ -21,7 +21,7 @@
           <div class="acts"><button class="btn sm">Create round</button><button type="button" class="btn sm ghost" data-close>Cancel</button></div>
         </form>
       </details>
-      {% set past = all_rounds | selectattr('status', 'in', ['published', 'archived']) | list %}
+      {% set past = all_rounds | selectattr('status', 'eq', 'published') | list %}
       {% if past %}
       <details class="more" data-keep="past-rounds"><summary>Past rounds ({{ past|length }})</summary>
         <div class="linklist">
