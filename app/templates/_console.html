@@ -85,8 +85,8 @@
           {% if x.p.min_interest_override is not none %}<span class="tag" title="The host set a minimum{% if x.floor != x.p.min_interest_override %}. It is lowered to fit the host's maximum or the largest room{% endif %}">Minimum {{ x.floor }}</span>
           {% elif x.floor != rnd.min_interest %}<span class="tag" title="The round minimum ({{ rnd.min_interest }}) is lowered to fit the host's maximum or the largest room">Minimum {{ x.floor }}</span>{% endif %}
         </span>
-        <div class="acts">
-          <details class="act"><summary class="btn sm">Rename</summary>
+        <div class="acts tools">
+          <details class="act"><summary class="btn tool">Rename</summary>
             <form method="post" action="/admin/proposal-edit" hx-post="/admin/proposal-edit" class="inrow sm">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}">
               <input type="hidden" name="proposal_id" value="{{ x.p.id }}">
@@ -95,7 +95,7 @@
           </details>
           <form method="post" action="/admin/remove" hx-post="/admin/remove" hx-confirm="Remove “{{ x.p.title }}” from this round? Generate does not place it until you restore it.">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}">
-            <input type="hidden" name="proposal_id" value="{{ x.p.id }}"><button class="btn sm ghost danger">Remove</button>
+            <input type="hidden" name="proposal_id" value="{{ x.p.id }}"><button class="btn tool danger">Remove</button>
           </form>
         </div>
       </div>
@@ -109,7 +109,7 @@
           <span class="pi-name muted">{{ x.p.title }}</span>
           <form method="post" action="/admin/restore" hx-post="/admin/restore">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}">
-            <input type="hidden" name="proposal_id" value="{{ x.p.id }}"><button class="btn sm">Restore</button>
+            <input type="hidden" name="proposal_id" value="{{ x.p.id }}"><button class="btn tool">Restore</button>
           </form>
         </div>
         {% endfor %}
@@ -128,7 +128,7 @@
           <button class="btn sm">Save</button>
         </form>
         <form method="post" action="/admin/timeslot-delete" hx-post="/admin/timeslot-delete" hx-confirm="Delete “{{ ts.name }}”?">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><input type="hidden" name="timeslot_id" value="{{ ts.id }}"><button class="btn sm ghost danger"{% if rnd.status == 'published' %} data-double-confirm="“{{ ts.name }}” is on the PUBLISHED schedule. If you delete it, attendees do not see it. Delete it?"{% endif %}>Delete</button>
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><input type="hidden" name="timeslot_id" value="{{ ts.id }}"><button class="btn tool danger"{% if rnd.status == 'published' %} data-double-confirm="“{{ ts.name }}” is on the PUBLISHED schedule. If you delete it, attendees do not see it. Delete it?"{% endif %}>Delete</button>
         </form>
       </div>
       {% else %}<div class="hint">No timeslots yet.</div>{% endfor %}
@@ -146,7 +146,7 @@
         </form>
         <form method="post" action="/admin/room-delete" hx-post="/admin/room-delete" hx-confirm="Delete “{{ r.name }}”? This removes its sessions from the grid.">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}">
-          <input type="hidden" name="room_id" value="{{ r.id }}"><button class="btn sm ghost danger"{% if rnd.status == 'published' %} data-double-confirm="“{{ r.name }}” is used by the PUBLISHED schedule. If you delete it, attendees do not see its sessions. Delete it?"{% endif %}>Delete</button>
+          <input type="hidden" name="room_id" value="{{ r.id }}"><button class="btn tool danger"{% if rnd.status == 'published' %} data-double-confirm="“{{ r.name }}” is used by the PUBLISHED schedule. If you delete it, attendees do not see its sessions. Delete it?"{% endif %}>Delete</button>
         </form>
       </div>
       {% endfor %}
@@ -213,12 +213,12 @@
         <form method="post" action="/admin/solve" hx-post="/admin/solve"{% if rnd.status == 'published' and not n_started %} hx-confirm="This round is PUBLISHED. Generate replaces the schedule that attendees see. Continue?"{% endif %}>
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}">
           <input type="hidden" name="pin_started" value="1">
-          <button class="btn primary"{% if rnd.status == 'published' %} data-regen data-confirm1="This round is PUBLISHED. Generate again and replace the schedule that attendees see?"{% endif %}{% if n_started %} data-pin-ask="{{ n_started }} session(s) have started. Keep them where they are? OK = keep them. Cancel = generate everything again (sessions in progress can move)."{% endif %}>{{ 'Generate again' if rnd.status == 'published' else 'Generate' }}</button>
+          <button class="btn {% if not placements %}primary{% endif %}"{% if rnd.status == 'published' %} data-regen data-confirm1="This round is PUBLISHED. Generate again and replace the schedule that attendees see?"{% endif %}{% if n_started %} data-pin-ask="{{ n_started }} session(s) have started. Keep them where they are? OK = keep them. Cancel = generate everything again (sessions in progress can move)."{% endif %}>{{ 'Generate again' if rnd.status == 'published' else 'Generate' }}</button>
         </form>
         {% if rnd.status == 'published' %}
           <form method="post" action="/admin/unpublish" hx-post="/admin/unpublish"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><button class="btn">Unpublish</button></form>
         {% else %}
-          <form method="post" action="/admin/publish" hx-post="/admin/publish" hx-confirm="Publish this schedule?"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><button class="btn go">Publish</button></form>
+          <form method="post" action="/admin/publish" hx-post="/admin/publish" hx-confirm="Publish this schedule?"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><button class="btn {% if placements %}go{% endif %}">Publish</button></form>
         {% endif %}
         <details class="popover"><summary class="btn">Add timeslot</summary>
           <form method="post" action="/admin/timeslot" hx-post="/admin/timeslot">

@@ -6,6 +6,7 @@
   --line:rgba(39,50,71,.16); --line-strong:rgba(39,50,71,.4);
   --text:#273247; --muted:#525E75;
   --primary:#537469; --accent:#6FA06F; --accent-bg:#C9DDC9;
+  --primary-ink:#4E6E63;   /* primary, a little darker: small text on --surface passes 4.5:1 */
   --danger:#A8452F; --danger-bg:#F6E1D9;   /* not in the brand palette: errors only */
   --star-off:#C4BDAF;
   --sans:'Manrope',system-ui,-apple-system,'Segoe UI',sans-serif;
@@ -13,6 +14,7 @@
   --xs:12px; --sm:14px; --md:16px; --lg:24px;
   --r:8px; --r2:10px;
   --ctl:42px; --ctl-sm:30px;   /* control heights: inputs and the buttons beside them */
+  --chev:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23537469' stroke-width='1.5'/%3E%3C/svg%3E");
 }
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
@@ -44,26 +46,38 @@ input.sm,.inrow.sm input{height:var(--ctl-sm);padding:0 8px;font-size:var(--sm)}
 .inrow:not(.sm) .btn,.inrow:not(.sm) input{height:var(--ctl)}
 .inrow.sm .btn,.roomrow .btn,.copyrow .btn{height:var(--ctl-sm)}
 
-/* ---- buttons ---- */
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:8px 18px;
-  border:1px solid var(--text);border-radius:999px;background:transparent;color:var(--text);
+/* ---- buttons ----
+   Shape tells the role: buttons have the same corners as inputs, so an input and its button
+   read as one unit. The pill shape is only for tags (status, not pressable).
+   One filled button (.primary or .go) for each state of a screen. */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:8px 16px;
+  border:1px solid var(--line-strong);border-radius:var(--r);background:var(--white);color:var(--text);
+  box-shadow:0 1px 0 rgba(39,50,71,.08);
   font-weight:600;font-size:var(--sm);line-height:1.4;cursor:pointer;text-decoration:none;white-space:nowrap}
-.btn:hover{background:var(--surface)}
+.btn:hover{border-color:var(--text)}
 .btn.primary{background:var(--primary);border-color:var(--primary);color:var(--bg)}
 .btn.go{background:var(--text);border-color:var(--text);color:var(--bg)}
 .btn.primary:hover,.btn.go:hover{filter:brightness(1.1)}
 .btn.block{width:100%;padding:11px 18px;font-size:var(--md)}
-.btn.sm{padding:3px 12px;font-size:var(--xs);border-color:var(--line-strong);background:var(--white)}
-.btn.sm:hover{border-color:var(--text)}
-.btn.sm.primary{background:var(--primary);border-color:var(--primary);color:var(--bg)}
+.btn.sm{padding:3px 10px;font-size:var(--xs);border-radius:6px}
 .btn.sm.danger{color:var(--danger)}
 .btn.sm.danger:hover{border-color:var(--danger)}
-.btn.sm.on{background:var(--accent-bg);border-color:var(--accent-bg)}
-/* ghost: lowest level. No border; used for secondary and destructive actions beside an outlined one */
-.btn.ghost,.btn.sm.ghost{border-color:transparent;background:transparent}
+/* on/off button (Host this / Hosting): a check mark and a tint show that it is on */
+.btn.toggle[aria-pressed=true]{background:var(--accent-bg);border-color:var(--primary)}
+.btn.toggle .ico{font-size:1.1em;line-height:1}
+/* ghost: no border; used for secondary and destructive actions beside an outlined one */
+.btn.ghost,.btn.sm.ghost{border-color:transparent;background:transparent;box-shadow:none}
 .btn.ghost:hover,.btn.sm.ghost:hover{border-color:transparent;background:rgba(39,50,71,.08)}
 .btn.sm.ghost{padding-left:8px;padding-right:8px}
 .btn.sm.ghost.danger:hover{background:var(--danger-bg)}
+/* tool: a word, not a box. For the many repeated actions in grid cells and rail rows */
+.btn.tool{height:auto;min-height:0;padding:4px 0;border:0;border-radius:0;background:none;box-shadow:none;
+  font-size:var(--xs);font-weight:700;color:var(--primary-ink);
+  text-decoration:underline;text-decoration-color:transparent;text-underline-offset:3px}
+.btn.tool:hover{background:none;text-decoration-color:currentColor}
+.btn.tool.danger{color:var(--danger)}
+.btn.tool[aria-pressed=true]{color:var(--text)}
+.roomrow .btn.tool{height:var(--ctl-sm)}
 .btn:disabled{opacity:.6;cursor:default}
 .htmx-request.btn,.htmx-request .btn{opacity:.6}
 
@@ -192,7 +206,7 @@ main{display:block}
 .rail h3 span{font-weight:500;font-size:var(--xs);color:var(--muted)}
 .rail .tag:not(.ok):not(.bad){background:var(--white)}
 .rail .tag{white-space:normal;border-radius:10px}
-.rail .btn:not(.sm){padding:5px 14px}
+.rail .btn:not(.sm):not(.tool){padding:5px 14px}
 .rail label{font-size:var(--sm)}
 .seg{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:1px;
   border:1px solid var(--line-strong);border-radius:var(--r);overflow:hidden;background:var(--line)}
@@ -213,6 +227,7 @@ main{display:block}
 .item b{overflow-wrap:anywhere}
 .item.row{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .acts{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.acts.tools{gap:4px 16px}
 .roomrow{display:flex;gap:6px;align-items:center;padding:3px 0}
 .roomrow .inrow{flex:1;min-width:0}
 
@@ -254,7 +269,12 @@ main{display:block}
 .meter i{display:block;height:100%;background:var(--accent)}
 .cell.over .meter i{background:var(--danger)}
 .cell .acts{margin-top:8px}
-.place select{width:auto;max-width:11rem;padding:2px 8px;font-size:var(--xs);font-weight:600;border-radius:999px}
+/* place dropdowns: Replace is a text tool; in an empty cell it is a dashed slot */
+.place select{appearance:none;-webkit-appearance:none;cursor:pointer;background:transparent var(--chev) no-repeat right 2px center;
+  width:5.5em;padding:4px 16px 4px 0;border:0;border-radius:0;font-size:var(--xs);font-weight:700;color:var(--primary-ink)}
+.cell.blank .place select{width:100%;max-width:none;height:44px;padding:0 26px 0 10px;border:1px dashed var(--line-strong);
+  border-radius:var(--r);color:var(--muted);font-weight:600;background-position:right 10px center}
+.cell.blank .place select:hover{border-color:var(--primary);color:var(--primary)}
 
 .sum{display:grid;gap:12px;align-content:start}
 .sum>div+div{border-top:1px solid var(--line);padding-top:10px}
@@ -285,7 +305,8 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline-offset:0
   /* touch: 32px controls */
   :root{--ctl-sm:34px}
   .btn.sm{padding:6px 14px;min-height:32px}
-  .place select{padding:6px 10px}
+  .btn.tool{padding:8px 0}
+  .place select{padding-top:8px;padding-bottom:8px}
 }
 @media (max-width:480px){
   .slot-rooms li{grid-template-columns:5.5rem minmax(0,1fr)}

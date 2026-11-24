@@ -48,9 +48,9 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="proposal_id" value="{{ r.p.id }}">
       <input type="hidden" name="on" value="{{ 0 if r.is_runner else 1 }}">
-      <button type="submit" class="btn sm {% if r.is_runner %}on{% endif %}"
+      <button type="submit" class="btn sm toggle"
               aria-pressed="{{ 'true' if r.is_runner else 'false' }}"
-              title="{{ 'You host this session. Click to stop.' if r.is_runner else 'Host this session. A host must attend it.' }}">{{ 'You host this' if r.is_runner else 'Host this' }}</button>
+              title="{{ 'You host this session. Click to stop.' if r.is_runner else 'Host this session. A host must attend it.' }}"><span class="ico" aria-hidden="true">{{ '✓' if r.is_runner else '+' }}</span>{{ 'Hosting' if r.is_runner else 'Host this' }}</button>
     </form>
   </div>
 </div>

@@ -26,7 +26,7 @@
             {% if rnd.status == 'published' %}
               {% if ts.started_at %}<small>Started</small>
               {% else %}
-              <form method="post" action="/admin/timeslot-start" hx-post="/admin/timeslot-start" hx-target="#console-main" hx-swap="outerHTML"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><input type="hidden" name="timeslot_id" value="{{ ts.id }}"><button class="btn sm">Start clock</button></form>
+              <form method="post" action="/admin/timeslot-start" hx-post="/admin/timeslot-start" hx-target="#console-main" hx-swap="outerHTML"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><input type="hidden" name="timeslot_id" value="{{ ts.id }}"><button class="btn tool">Start clock</button></form>
               {% endif %}
             {% endif %}
           </th>
@@ -36,17 +36,17 @@
               {% set c = cells.get((ts.id, r.id)) %}
               <td class="cell filled {% if c.overflow > 0 %}over{% endif %} {% if c.below_floor %}below-floor{% endif %}">
                 <b>{{ c.p.title }}</b>
-                {% if c.hosts %}<div class="m">Host: {{ c.hosts | join(', ') }}{% if pl.pinned %} <span class="tag" title="Pinned: Generate keeps it here">Pinned</span>{% endif %}</div>
-                {% else %}<div class="m bad" title="Nobody runs this session. Generate keeps it only while it is pinned.">No host</div>{% if pl.pinned %}<div class="m"><span class="tag" title="Pinned: Generate keeps it here">Pinned</span></div>{% endif %}{% endif %}
+                {% if c.hosts %}<div class="m">Host: {{ c.hosts | join(', ') }}</div>
+                {% else %}<div class="m bad" title="Nobody runs this session. Generate keeps it only while it is pinned.">No host</div>{% endif %}
                 {% if c.stats %}
                 <div class="meter"><i style="width:{{ [100, (100 * c.guests / c.capacity) if c.capacity else 0] | min }}%"></i></div>
                 <div class="m">{{ c.guests }} of {{ c.capacity }} seats{% if c.overflow > 0 %}. <span class="bad">{{ c.overflow }} more wanted in.</span>{% endif %}</div>
                 {% endif %}
                 <div class="m" title="People besides the hosts who rated it ★3 or more">{{ c.interested }} want it{% if c.interested %} ({{ c.stars[5] }} at ★5, {{ c.stars[4] }} at ★4, {{ c.stars[3] }} at ★3){% endif %}</div>
                 {% if c.below_floor %}<div class="m bad" title="Pinned sessions skip the minimum">Below minimum: {{ c.guests }} of {{ c.floor }}</div>{% endif %}
-                <div class="acts">
-                  <form method="post" action="/admin/pin" hx-post="/admin/pin" hx-target="#console-main" hx-swap="outerHTML"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><input type="hidden" name="placement_id" value="{{ pl.id }}"><input type="hidden" name="pinned" value="{{ 0 if pl.pinned else 1 }}"><button class="btn sm">{{ 'Unpin' if pl.pinned else 'Pin' }}</button></form>
-                  <form method="post" action="/admin/remove" hx-post="/admin/remove" hx-target="#console-main" hx-swap="outerHTML" hx-confirm="Remove “{{ c.p.title }}” from this round? Generate does not place it again until you restore it from the session list."><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><input type="hidden" name="proposal_id" value="{{ pl.proposal_id }}"><button class="btn sm ghost danger">Remove</button></form>
+                <div class="acts tools">
+                  <form method="post" action="/admin/pin" hx-post="/admin/pin" hx-target="#console-main" hx-swap="outerHTML"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><input type="hidden" name="placement_id" value="{{ pl.id }}"><input type="hidden" name="pinned" value="{{ 0 if pl.pinned else 1 }}"><button class="btn tool" aria-pressed="{{ 'true' if pl.pinned else 'false' }}" title="{{ 'Pinned: Generate keeps it here. Click to unpin.' if pl.pinned else 'Pin: Generate keeps it here' }}">{{ '✓ Pinned' if pl.pinned else 'Pin' }}</button></form>
+                  <form method="post" action="/admin/remove" hx-post="/admin/remove" hx-target="#console-main" hx-swap="outerHTML" hx-confirm="Remove “{{ c.p.title }}” from this round? Generate does not place it again until you restore it from the session list."><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><input type="hidden" name="proposal_id" value="{{ pl.proposal_id }}"><button class="btn tool danger">Remove</button></form>
                   {{ place_select(ts, r, pl.proposal_id) }}
                 </div>
               </td>
