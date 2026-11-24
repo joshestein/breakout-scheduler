@@ -35,8 +35,6 @@ def test_load_participant_rejects_stale_cookie(session):
     assert load_participant(s, SessionToken(u.id, "participant", participant_cb(u))) is u
     # id reused for a different person (DB rebuilt) -> cb mismatch -> rejected
     assert load_participant(s, SessionToken(u.id, "participant", participant_cb(u) + 1)) is None
-    # legacy cookie without cb is grandfathered (don't disable existing logins)
-    assert load_participant(s, SessionToken(u.id, "participant", None)) is u
 
 
 def test_delete_room_cascades(session):

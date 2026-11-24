@@ -15,17 +15,24 @@ def _req(peer: str, headers: dict[str, str], trusted: frozenset[str] = frozenset
 
 
 def test_token_roundtrip():
-    t = issue_token(42, "participant", "secret")
-    assert read_token(t, "secret") == SessionToken(pid=42, scope="participant")
+    t = issue_token(42, "participant", "secret", cb=1)
+    assert read_token(t, "secret") == SessionToken(pid=42, scope="participant", cb=1)
+
+
+def test_token_without_cb_rejected():
+    from itsdangerous import URLSafeSerializer
+    from app.auth import _SALT
+    old = URLSafeSerializer("secret", salt=_SALT).dumps({"pid": 42, "scope": "participant"})
+    assert read_token(old, "secret") is None
 
 
 def test_token_wrong_secret_rejected():
-    t = issue_token(42, "admin", "secret")
+    t = issue_token(42, "admin", "secret", cb=1)
     assert read_token(t, "other") is None
 
 
 def test_admin_scope_cannot_be_forged_from_participant_token():
-    t = issue_token(7, "participant", "secret")
+    t = issue_token(7, "participant", "secret", cb=1)
     tok = read_token(t, "secret")
     assert tok is not None and not tok.is_admin
     # tampering the payload breaks the signature

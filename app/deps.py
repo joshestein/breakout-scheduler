@@ -14,14 +14,13 @@ def participant_cb(p: Participant) -> int:
 
 
 def load_participant(session, token: SessionToken | None) -> Participant | None:
-    """Resolve the cookie to a participant, rejecting a stale/colliding id.
-    Legacy cookies (no cb) are grandfathered so existing sessions aren't disabled."""
+    """Resolve the cookie to a participant, rejecting a stale/colliding id."""
     if token is None:
         return None
     p = session.get(Participant, token.pid)
     if p is None:
         return None
-    if token.cb is not None and participant_cb(p) != token.cb:
+    if participant_cb(p) != token.cb:
         return None  # id now belongs to a different person (DB rebuilt) — don't impersonate
     return p
 
