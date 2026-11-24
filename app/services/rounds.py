@@ -128,6 +128,9 @@ def apply_result(session: Session, round_id: int, result: Result, *,
     """Write draft placements from a solver Result, preserving pinned ones.
 
     Raises ValueError on a non-solution so an infeasible solve never wipes the grid."""
+    if result.status == "UNKNOWN":
+        raise ValueError("The solver ran out of time before it found a schedule. "
+                         "Grid not changed. Try again.")
     if result.status not in ("OPTIMAL", "FEASIBLE"):
         raise ValueError("No schedule fits the pins and rules. Grid not changed.")
     existing = _placements(session, round_id)
