@@ -8,8 +8,6 @@ from dataclasses import dataclass, field
 # 3+ means "would attend"; points are linear (stars - 2) so one enthusiastic rater
 # cannot outweigh many "maybe"s.
 WEIGHT: dict[int, int] = {1: 0, 2: 0, 3: 1, 4: 2, 5: 3}
-STAR_LABELS: dict[int, str] = {1: "won't go", 2: "rather not", 3: "maybe",
-                               4: "want", 5: "must"}
 INTERESTED_STARS: int = 3  # >= this counts as "would attend" (coverage + eligibility)
 
 
