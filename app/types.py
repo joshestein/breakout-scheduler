@@ -20,7 +20,7 @@ class Slot:
 
 @dataclass(frozen=True)
 class Candidate:
-    id: int                      # proposal id (merge-root)
+    id: int                      # proposal id
     runners: frozenset[int]      # participant ids who must be present
     max_attendees: int | None = None   # host seat cap; effective cap = min(room, this)
     min_seated: int = 1          # a running session seats at least this many non-hosts
@@ -30,8 +30,8 @@ class Candidate:
 class Problem:
     slots: list[Slot]
     candidates: list[Candidate]
-    present: frozenset[int]                 # engaged & present participant ids
-    stars: dict[tuple[int, int], int]       # (participant_id, candidate_id) -> 1..5 (folded)
+    present: frozenset[int]                 # engaged participant ids (rated 3+ or host)
+    stars: dict[tuple[int, int], int]       # (participant_id, candidate_id) -> 1..5
     pins: frozenset[tuple[int, int, int]] = field(default_factory=frozenset)  # (cand, slot, room)
     # When set, the grid is FIXED to exactly these placements (nothing else may run).
     # Used to score the actual current grid instead of re-optimising it.
@@ -56,7 +56,7 @@ class Result:
     status: str                # "OPTIMAL" | "FEASIBLE" | "INFEASIBLE" | "UNKNOWN" (timed out)
     placements: list[PlacementOut]
     total_interest: int
-    n_present: int                           # engaged+present people (coverage denominator)
+    n_present: int                           # engaged people (coverage denominator)
     coverage_pct: dict[int, float]           # slot_id -> % of present covered
     left_out: dict[int, list[int]]           # slot_id -> [participant_id] (chosen uncovered)
     forced_uncovered: dict[int, list[int]]   # slot_id -> [participant_id] (capacity-impossible)
