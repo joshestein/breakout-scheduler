@@ -3,6 +3,6 @@
   "short_name": "Breakouts",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f4efe4",
-  "theme_color": "#cf432a"
+  "background_color": "#FDF9F4",
+  "theme_color": "#537469"
 }
