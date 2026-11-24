@@ -294,6 +294,56 @@ def test_room_timeslot_edit_delete_routes(app):
     assert _post(admin, "/admin/timeslot-delete", csrf, {"round_id": rid, "timeslot_id": ts}).status_code == 200
 
 
+def test_add_room_and_event_level_edit_render_console(app):
+    csrf = _csrf(TestClient(app))
+    admin = TestClient(app)
+    _post(admin, "/events", csrf, {"name": "R", "participant_code": "p", "admin_code": "a",
+                                   "admin_name": "Org"})
+    hx = {"X-CSRFToken": csrf, "HX-Request": "true"}
+    # no round yet: redirect to the console
+    r = admin.post("/admin/rooms", headers=hx, data={"name": "Lib", "capacity": 10},
+                   follow_redirects=False)
+    assert r.status_code == 303
+    _post(admin, "/admin/round", csrf, {"name": "R1"})
+    # with a round: the console partial for the latest round
+    r = admin.post("/admin/rooms", headers=hx, data={"name": "Den", "capacity": 8})
+    assert r.status_code == 200 and "Den" in r.text and "R1" in r.text
+    with app.state.session_factory() as s:
+        den = s.scalar(select(Room).where(Room.name == "Den")).id
+    # an edit with no round_id falls back to the latest round
+    r = admin.post("/admin/room-edit", headers=hx,
+                   data={"room_id": den, "name": "Study", "capacity": 8})
+    assert r.status_code == 200 and "Study" in r.text and "R1" in r.text
+
+
+def test_runner_toggle_sets_host_and_top_rating(app):
+    from app.models import ProposalRunner, Rating
+    csrf = _csrf(TestClient(app))
+    admin = TestClient(app)
+    _post(admin, "/events", csrf, {"name": "R", "participant_code": "p", "admin_code": "a",
+                                   "admin_name": "Org", "rooms": "Lib, 10"})
+    _post(admin, "/admin/round", csrf, {"name": "R1"})
+    sf = app.state.session_factory
+    with sf() as s:
+        rid = s.scalar(select(Round)).id
+    _post(admin, "/admin/add-session", csrf, {"round_id": rid, "title": "Topic"})
+    with sf() as s:
+        pid = s.scalar(select(Proposal)).id
+    ann = TestClient(app)
+    _post(ann, "/enter", csrf, {"code": "p", "name": "Ann"})
+
+    r = _post(ann, "/runner-toggle", csrf, {"proposal_id": pid, "on": 1})
+    assert r.status_code == 200 and "Topic" in r.text
+    with sf() as s:
+        assert s.scalar(select(ProposalRunner).where(ProposalRunner.proposal_id == pid))
+        assert s.scalar(select(Rating).where(Rating.proposal_id == pid)).stars == 5
+
+    r = _post(ann, "/runner-toggle", csrf, {"proposal_id": pid, "on": 0})
+    assert r.status_code == 200
+    with sf() as s:
+        assert s.scalar(select(ProposalRunner).where(ProposalRunner.proposal_id == pid)) is None
+
+
 def test_dedup_by_role_and_own_proposal_edit(app):
     from app.models import Participant
     csrf = _csrf(TestClient(app))
