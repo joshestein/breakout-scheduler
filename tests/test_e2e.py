@@ -331,15 +331,17 @@ def test_runner_toggle_sets_host_and_top_rating(app):
         pid = s.scalar(select(Proposal)).id
     ann = TestClient(app)
     _post(ann, "/enter", csrf, {"code": "p", "name": "Ann"})
+    # organizer-added topic: the organizer is not a host
+    assert "No host yet." in ann.get("/app").text
 
     r = _post(ann, "/runner-toggle", csrf, {"proposal_id": pid, "on": 1})
-    assert r.status_code == 200 and "Topic" in r.text
+    assert r.status_code == 200 and "Topic" in r.text and "Hosted by Ann." in r.text
     with sf() as s:
         assert s.scalar(select(ProposalRunner).where(ProposalRunner.proposal_id == pid))
         assert s.scalar(select(Rating).where(Rating.proposal_id == pid)).stars == 5
 
     r = _post(ann, "/runner-toggle", csrf, {"proposal_id": pid, "on": 0})
-    assert r.status_code == 200
+    assert r.status_code == 200 and "No host yet." in r.text
     with sf() as s:
         assert s.scalar(select(ProposalRunner).where(ProposalRunner.proposal_id == pid)) is None
 
