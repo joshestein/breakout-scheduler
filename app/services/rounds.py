@@ -129,8 +129,7 @@ def evaluate_current(session: Session, round_id: int) -> Result:
     return build_and_solve(problem)
 
 
-def apply_result(session: Session, round_id: int, result: Result, *,
-                 keep_pinned: bool = True) -> None:
+def apply_result(session: Session, round_id: int, result: Result) -> None:
     """Write draft placements from a solver Result, preserving pinned ones.
 
     Raises ValueError on a non-solution so an infeasible solve never wipes the grid."""
