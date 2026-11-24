@@ -31,13 +31,13 @@
       const ts = card.getAttribute("data-ts");
       if (now < end) {
         const left = end - now;
-        el.textContent = "ends in " + fmt(left);
+        el.textContent = "Ends in " + fmt(left);
         el.classList.toggle("amber", left <= 5 * 60000);
         el.classList.toggle("red", left <= 60000);
         notify("Session starting", "Head to your room.", "start-" + ts);
         if (left <= 5 * 60000) notify("5 minutes left", "This session is wrapping up.", "end-" + ts);
       } else {
-        el.textContent = "ended";
+        el.textContent = "Ended";
       }
     });
   }
@@ -61,18 +61,18 @@
   }
 
   async function reflectAlertState(btn) {
-    // show "Alerts on ✓" on reload if already enabled (so it's a remembered setting)
+    // show "Alerts on" on reload if already enabled (so it's a remembered setting)
     if (!("Notification" in window) || Notification.permission !== "granted") return;
     var vapid = document.querySelector('meta[name=vapid-key]');
     if (vapid && vapid.content && "serviceWorker" in navigator) {
       try {
         var reg = await navigator.serviceWorker.getRegistration();
         var sub = reg && (await reg.pushManager.getSubscription());
-        if (sub) { btn.textContent = "Alerts on ✓"; btn.disabled = true; }
+        if (sub) { btn.textContent = "Alerts on"; btn.disabled = true; }
       } catch (e) {}
       return;
     }
-    btn.textContent = "Alerts on ✓"; btn.disabled = true;  // foreground-only fallback
+    btn.textContent = "Alerts on"; btn.disabled = true;  // foreground-only fallback
   }
 
   async function enableAlerts(btn) {
@@ -97,10 +97,10 @@
         });
         // fetch only rejects on network error, not on a 4xx/5xx — check explicitly
         // so we never claim success the server didn't grant.
-        if (!resp.ok) { btn.textContent = "Couldn't enable alerts"; return; }
+        if (!resp.ok) { btn.textContent = "Alerts could not be enabled"; return; }
       }
-      btn.textContent = "Alerts on ✓"; btn.disabled = true;
-    } catch (e) { btn.textContent = "Couldn't enable alerts"; }
+      btn.textContent = "Alerts on"; btn.disabled = true;
+    } catch (e) { btn.textContent = "Alerts could not be enabled"; }
   }
 
   // Confirmation flow for regenerating a PUBLISHED schedule. Capture phase so it
@@ -177,10 +177,17 @@
       if (!btn.getAttribute("data-label")) btn.setAttribute("data-label", btn.textContent);
       var orig = btn.getAttribute("data-label");
       copyText(text).then(
-        function () { btn.textContent = "copied ✓"; },
-        function () { btn.textContent = "copy failed — select & copy manually"; }
+        function () { btn.textContent = "Copied"; },
+        function () { btn.textContent = "Copy failed. Select the text and copy it."; }
       );
       setTimeout(function () { btn.textContent = orig; }, 1600);
+    });
+
+    // Cancel buttons inside a disclosure close it (delegated: works after htmx swaps)
+    document.body.addEventListener("click", function (e) {
+      var c = e.target.closest("[data-close]");
+      var d = c && c.closest("details");
+      if (d) d.open = false;
     });
 
     // toast on htmx failures (CSRF expiry, rate-limit, network) so nothing is silent
@@ -191,16 +198,16 @@
       clearTimeout(t._h); t._h = setTimeout(function () { t.hidden = true; }, 3500);
     }
     document.body.addEventListener("htmx:responseError", function (e) {
-      var x = e.detail && e.detail.xhr, msg = "Something went wrong — please try again.";
-      if (x && x.status === 429) msg = "You're going a bit fast — wait a moment and retry.";
-      else if (x && x.status === 403) msg = "That action isn't allowed.";
+      var x = e.detail && e.detail.xhr, msg = "Something went wrong. Try again.";
+      if (x && x.status === 429) msg = "Too many requests. Wait a moment, then try again.";
+      else if (x && x.status === 403) msg = "That action is not allowed.";
       else if (x && x.status >= 400 && x.status < 500) {
         try { var d = JSON.parse(x.responseText); if (d && d.detail) msg = d.detail; } catch (_) {}
       }
       toast(msg);
     });
     document.body.addEventListener("htmx:sendError", function () {
-      toast("Network error — check your connection.");
+      toast("Network error. Check your connection.");
     });
 
     // render QR codes (offline, via vendored qrcode-generator); re-run after htmx
