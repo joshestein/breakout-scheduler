@@ -84,7 +84,7 @@ def test_full_lifecycle(app):
     # start the clock, then a participant sees the published grid with a highlight
     _post(admin, "/admin/timeslot-start", csrf, {"round_id": rnd.id, "timeslot_id": ts.id})
     pub = a.get("/published").text
-    assert "AI safety" in pub and "→ you" in pub
+    assert "AI safety" in pub and "Your seat" in pub
     # countdown timestamp must be UTC-explicit so browsers don't misparse as local
     assert "+00:00" in pub
 
@@ -626,13 +626,13 @@ def test_console_explains_cards_and_unplaced_sessions(app):
     html = admin.get("/admin?round_id=%d" % rid).text
 
     # the one room goes to Alpha: it covers Ann (host) + 2 guests, and they rated it ★5
-    assert "host: Ann" in html and "2 seated / 10 seats" in html and "★5×2" in html
+    assert "Host: Ann" in html and "2 of 10 seats" in html and "2 at ★5" in html
     assert "1 want it, needs 2" in html                 # Beta: below its own minimum
     assert "host busy: Ann runs Alpha" in html          # Delta: its host is in Alpha
     assert "no host: nobody runs it" in html            # Gamma: nobody runs it
-    assert "⚠ no host" not in html
+    assert "No host</div>" not in html
     assert "3 of 9 have a session" in html              # Ann + G1 + G2, of the 2 hosts + 7 raters
-    assert "Quiet" in html and "haven" in html          # non-raters are listed
+    assert "Quiet" in html and "Not rated" in html          # non-raters are listed
 
     # placed by hand, a session with no host stays on the grid but is flagged
     with sf() as s:
@@ -642,7 +642,7 @@ def test_console_explains_cards_and_unplaced_sessions(app):
                                              "room_id": room_id, "proposal_id": pid("Gamma")})
     _post(admin, "/admin/solve", csrf, {"round_id": rid})     # pinned: Generate keeps it
     html = admin.get("/admin?round_id=%d" % rid).text
-    assert "⚠ no host" in html and "2 seated / 10 seats" in html
+    assert "No host</div>" in html and "2 of 10 seats" in html
 
 
 def test_console_badge_uses_clamped_floor(app):
@@ -734,7 +734,7 @@ def test_removed_session_fans_still_counted(app):
     _post(kim, "/rate", csrf, {"proposal_id": gone, "stars": 5})
     _post(admin, "/admin/remove", csrf, {"round_id": rid, "proposal_id": gone})
     html = admin.get("/admin?round_id=%d" % rid).text
-    assert "haven't rated · 1" in html and "Kim" in html
+    assert "Not rated <span>1</span>" in html and "Kim" in html
 
 
 def test_published_view_shows_the_solver_seat_not_the_top_star(app):
