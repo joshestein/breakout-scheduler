@@ -156,3 +156,26 @@ def test_invariants_on_random_retreats():
             assert guests <= pl.capacity
             for h in c.runners:
                 assert h not in r.left_out[pl.slot_id]
+
+
+def test_generate_never_puts_a_host_in_two_sessions():
+    p = Problem(
+        slots=[Slot(id=1, position=0, rooms={10: 5, 11: 5})],
+        candidates=[Candidate(id=100, runners=frozenset({9})),
+                    Candidate(id=200, runners=frozenset({9}))],
+        present=frozenset({1, 2, 9}),
+        stars={(1, 100): 5, (2, 200): 5},
+    )
+    r = build_and_solve(p)
+    assert len(r.placements) == 1
+
+
+def test_left_out_matches_assignments():
+    p = Problem(
+        slots=[Slot(id=1, position=0, rooms={10: 1})],
+        candidates=[Candidate(id=100, runners=frozenset({9}))],
+        present=frozenset({1, 2, 9}),
+        stars={(1, 100): 5, (2, 100): 5},
+    )
+    r = build_and_solve(p)
+    assert r.left_out[1] == sorted(u for u in p.present if (u, 1) not in r.assignments)
