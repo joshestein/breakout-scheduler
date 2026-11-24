@@ -132,6 +132,14 @@
         </form>
       </div>
       {% else %}<div class="hint">No timeslots yet.</div>{% endfor %}
+      <details class="act"><summary class="btn sm">Add timeslot</summary>
+        <form method="post" action="/admin/timeslot" hx-post="/admin/timeslot" class="inrow sm">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}">
+          <input name="name" placeholder="Name, for example 15:00" aria-label="Timeslot name" required>
+          <input name="duration_minutes" type="number" value="45" min="1" required class="num" aria-label="Minutes">
+          <button class="btn sm">Add</button><button type="button" class="btn sm ghost" data-close>Cancel</button>
+        </form>
+      </details>
     </div>
 
     <div class="rail-sec" id="rooms-sec">
@@ -220,15 +228,6 @@
         {% else %}
           <form method="post" action="/admin/publish" hx-post="/admin/publish" hx-confirm="Publish this schedule?"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><button class="btn {% if placements %}go{% endif %}">Publish</button></form>
         {% endif %}
-        <details class="popover"><summary class="btn">Add timeslot</summary>
-          <form method="post" action="/admin/timeslot" hx-post="/admin/timeslot">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <input type="hidden" name="round_id" value="{{ rnd.id }}">
-            <label>Name<input name="name" placeholder="15:00" required></label>
-            <label>Minutes<input name="duration_minutes" type="number" value="45"></label>
-            <button class="btn primary">Add timeslot</button>
-          </form>
-        </details>
         {% if schedule_md %}<button type="button" class="btn ghost" data-copy="#sched-md">Copy as Markdown</button>
         <textarea id="sched-md" class="offscreen" readonly>{{ schedule_md }}</textarea>{% endif %}
         <span class="tag {% if rnd.status == 'published' %}ok{% endif %}">{{ 'Collecting ratings' if rnd.status == 'collecting' else rnd.status|capitalize }}</span>
