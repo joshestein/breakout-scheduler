@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from app.models import (Event, Participant, Placement, Proposal, ProposalRunner, Rating,
-                        Round, Timeslot, Room)
+                        Round, Timeslot, Room, as_utc)
 from app.types import INTERESTED_STARS
 from app.deps import get_session, require_participant, require_csrf, load_participant
 from app.render import render
@@ -234,7 +236,7 @@ def present(request: Request, code: str, session: Session = Depends(get_session)
     for slot in grid:
         ts = slot["ts"]
         if ts.started_at:
-            start = ts.started_at if ts.started_at.tzinfo else ts.started_at.replace(tzinfo=timezone.utc)
+            start = as_utc(ts.started_at)
             if start <= now <= start + timedelta(minutes=ts.duration_minutes or 0):
                 now_ids.add(ts.id)
     return render(request, "present.html", event=event, rnd=rnd, grid=grid, now_ids=now_ids)
