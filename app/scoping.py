@@ -6,7 +6,7 @@ from __future__ import annotations
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.models import Round, Proposal, Timeslot, Placement, Participant, Room
+from app.models import Round, Proposal, Timeslot, Placement, Room
 
 
 def _deny():
@@ -41,13 +41,6 @@ def owned_placement(session: Session, placement_id: int, event_id: int) -> Place
         _deny()
     owned_timeslot(session, pl.timeslot_id, event_id)
     return pl
-
-
-def owned_participant(session: Session, participant_id: int, event_id: int) -> Participant:
-    u = session.get(Participant, participant_id)
-    if u is None or u.event_id != event_id:
-        _deny()
-    return u
 
 
 def owned_room(session: Session, room_id: int, event_id: int) -> Room:
