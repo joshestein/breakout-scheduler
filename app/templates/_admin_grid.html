@@ -58,6 +58,15 @@
         {% endfor %}
       </tbody>
     </table>
+    {# add a row to the grid where the row appears #}
+    <details class="act addrow" data-keep="add-ts"><summary class="btn">+ Add timeslot</summary>
+        <form method="post" action="/admin/timeslot" hx-post="/admin/timeslot" hx-target="#console-main" hx-swap="outerHTML" class="inrow sm">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}">
+          <input name="name" placeholder="Name, for example 15:00" aria-label="Timeslot name" required>
+          <input name="duration_minutes" type="number" value="45" min="1" required class="num" aria-label="Minutes"><span class="xs muted">minutes</span>
+          <button class="btn sm">Add</button><button type="button" class="btn sm ghost" data-close>Cancel</button>
+        </form>
+    </details>
   </div>
 
   <aside class="sum">
