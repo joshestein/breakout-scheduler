@@ -126,9 +126,8 @@ def apply_result(session: Session, round_id: int, result: Result, *,
                          "Grid not changed. Try again.")
     if result.status not in ("OPTIMAL", "FEASIBLE"):
         raise ValueError("No schedule fits the pins and rules. Grid not changed.")
-    existing = _placements(session, round_id)
-    for p in existing:
-        if not (keep_pinned and p.pinned):
+    for p in _placements(session, round_id):
+        if not p.pinned:
             session.delete(p)
     session.flush()
     occupied = {(p.timeslot_id, p.room_id) for p in _placements(session, round_id)}
