@@ -1,21 +1,16 @@
 from __future__ import annotations
 
-from datetime import timezone
-
 from fastapi import Request, HTTPException, Depends
 
 from app.auth import read_token, SessionToken
 from app.csrf import verify as csrf_verify
-from app.models import Participant
+from app.models import Participant, as_utc
 
 
 def participant_cb(p: Participant) -> int:
     """Identity-binding value baked into the cookie: the participant's creation time.
     If the DB is rebuilt and the id is reused for someone else, this won't match."""
-    dt = p.created_at
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return int(dt.timestamp())
+    return int(as_utc(p.created_at).timestamp())
 
 
 def load_participant(session, token: SessionToken | None) -> Participant | None:

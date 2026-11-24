@@ -17,7 +17,7 @@ from fastapi.templating import Jinja2Templates
 
 from app.config import Settings, load_settings
 from app.db import make_engine, make_session_factory
-from app.models import Base
+from app.models import Base, as_utc
 from app.services.backup import backup_once
 from app.ratelimit import Limiter
 
@@ -44,8 +44,7 @@ def _session_alert_loop(app: FastAPI):
             for ts in s.scalars(select(Timeslot).where(Timeslot.started_at.is_not(None))):
                 if ts.id in state.session_alert_sent:
                     continue
-                start = ts.started_at if ts.started_at.tzinfo else ts.started_at.replace(tzinfo=timezone.utc)
-                end = start + timedelta(minutes=ts.duration_minutes or 0)
+                end = as_utc(ts.started_at) + timedelta(minutes=ts.duration_minutes or 0)
                 if not (end - timedelta(minutes=lead) <= now < end):
                     continue
                 try:
@@ -142,11 +141,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def _utciso(dt):
         # stored datetimes come back from SQLite naive but are UTC; emit an explicit
         # offset so the browser doesn't misparse the countdown as local time.
-        if dt is None:
-            return ""
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt.isoformat()
+        return as_utc(dt).isoformat() if dt else ""
     templates.env.filters["utciso"] = _utciso
     app.state.templates = templates
     app.state.bootstrap_used = False

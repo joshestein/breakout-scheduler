@@ -15,6 +15,11 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def as_utc(dt: datetime) -> datetime:
+    """SQLite returns stored datetimes without a zone. They are UTC."""
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
 class Event(Base):
     __tablename__ = "events"
     id: Mapped[int] = mapped_column(primary_key=True)
