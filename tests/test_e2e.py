@@ -828,3 +828,91 @@ def test_published_view_shows_the_solver_seat_not_the_top_star(app):
     assert seat(bob) is None
     assert "No seat was picked for you here" in bob.get("/published").text
 
+
+def test_admin_code_sign_in_and_bad_code_backoff(app):
+    csrf = _csrf(TestClient(app)); _two_room_round(app, csrf, TestClient(app))
+    org = TestClient(app)
+    assert _post(org, "/enter", csrf, {"code": "a", "name": "Org"}).url.path == "/admin"
+    bad = TestClient(app)
+    assert _post(bad, "/enter", csrf, {"code": "nope", "name": "X"}).status_code == 403
+    assert _post(bad, "/enter", csrf, {"code": "a", "name": "X"}).status_code == 429
+
+
+def _hosted_sessions(app, csrf, admin, titles):
+    sf, rid, rooms, ts = _two_room_round(app, csrf, admin)
+    ann = TestClient(app); _post(ann, "/enter", csrf, {"code": "p", "name": "Ann"})
+    for t in titles:
+        _post(ann, "/propose", csrf, {"title": t})
+    with sf() as s:
+        ids = {p.title: p.id for p in s.scalars(select(Proposal))}
+    return sf, rid, rooms, ts[0], ids
+
+
+def test_pin_route_and_generate_keeps_pin(app):
+    csrf = _csrf(TestClient(app)); admin = TestClient(app)
+    sf, rid, rooms, ts, ids = _hosted_sessions(app, csrf, admin, ["A1"])
+    g = TestClient(app); _post(g, "/enter", csrf, {"code": "p", "name": "G"})
+    _post(g, "/rate", csrf, {"proposal_id": ids["A1"], "stars": 5})
+    _post(admin, "/admin/force-place", csrf, {"round_id": rid, "timeslot_id": ts,
+                                              "room_id": rooms[1], "proposal_id": ids["A1"]})
+
+    def cell():
+        with sf() as s:
+            pl = s.scalar(select(Placement))
+            return pl.id, pl.room_id, pl.pinned
+    plid = cell()[0]
+    _post(admin, "/admin/pin", csrf, {"round_id": rid, "placement_id": plid, "pinned": 0})
+    assert cell()[1:] == (rooms[1], False)
+    _post(admin, "/admin/pin", csrf, {"round_id": rid, "placement_id": plid, "pinned": 1})
+    assert _post(admin, "/admin/solve", csrf, {"round_id": rid}).status_code == 200
+    assert cell()[1:] == (rooms[1], True)
+
+
+def test_solve_with_no_solution_is_409_and_keeps_grid(app):
+    csrf = _csrf(TestClient(app)); admin = TestClient(app)
+    sf, rid, rooms, ts, ids = _hosted_sessions(app, csrf, admin, ["A1", "A2"])
+    with sf() as s:   # Ann hosts both, pinned in one slot: no schedule fits
+        for room, t in zip(rooms, ["A1", "A2"]):
+            s.add(Placement(timeslot_id=ts, room_id=room, proposal_id=ids[t], pinned=True))
+        s.commit()
+    assert _post(admin, "/admin/solve", csrf, {"round_id": rid}).status_code == 409
+    with sf() as s:
+        assert len(s.scalars(select(Placement)).all()) == 2
+
+
+def test_unpublish_route_and_refusal_after_clock_starts(app):
+    csrf = _csrf(TestClient(app)); admin = TestClient(app)
+    sf, rid, _, ts = _two_room_round(app, csrf, admin)
+
+    def status():
+        with sf() as s:
+            return s.get(Round, rid).status
+    _post(admin, "/admin/publish", csrf, {"round_id": rid})
+    _post(admin, "/admin/unpublish", csrf, {"round_id": rid})
+    assert status() == "collecting"
+    _post(admin, "/admin/publish", csrf, {"round_id": rid})
+    _post(admin, "/admin/timeslot-start", csrf, {"round_id": rid, "timeslot_id": ts[0]})
+    assert _post(admin, "/admin/unpublish", csrf, {"round_id": rid}).status_code == 400
+    assert status() == "published"
+
+
+def test_polled_grid_partial_renders(app):
+    csrf = _csrf(TestClient(app)); admin = TestClient(app)
+    _, rid, _, _ = _two_room_round(app, csrf, admin)
+    r = admin.get(f"/admin/grid?round_id={rid}")
+    assert r.status_code == 200 and "Lib" in r.text and "Den" in r.text
+
+
+def test_bootstrap_code_gates_first_event(tmp_path):
+    app = create_app(Settings(secret_key="test-secret", db_path=str(tmp_path / "b.db"),
+                              backup_dir=str(tmp_path / "bk"), backup_interval_s=9999,
+                              bootstrap_admin_code="boot"))
+    csrf = _csrf(TestClient(app)); c = TestClient(app)
+    ev = {"name": "R", "participant_code": "p", "admin_code": "a"}
+    assert _post(c, "/events", csrf, {**ev, "bootstrap_code": "x"}).status_code == 403
+    same = {**ev, "admin_code": "p", "bootstrap_code": "boot"}
+    assert _post(c, "/events", csrf, same).status_code == 400
+    # a failed create must not use up the bootstrap code
+    assert _post(c, "/events", csrf, ev).status_code == 403
+    assert _post(c, "/events", csrf, {**ev, "bootstrap_code": "boot"}).url.path == "/admin"
+
