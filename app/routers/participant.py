@@ -33,20 +33,6 @@ def _active_proposals(session: Session, round_id: int | None) -> list[Proposal]:
         Proposal.round_id == round_id, Proposal.status == "active").order_by(Proposal.id)))
 
 
-def _latest_round(session: Session, event_id: int, status: str | None = None) -> Round | None:
-    q = select(Round).where(Round.event_id == event_id)
-    if status:
-        q = q.where(Round.status == status)
-    return session.scalar(q.order_by(Round.id.desc()))
-
-
-def _input_round(session: Session, event_id: int) -> Round | None:
-    """The round currently open for proposing/rating (draft or collecting)."""
-    return session.scalar(select(Round).where(
-        Round.event_id == event_id, Round.status.in_(("draft", "collecting"))
-    ).order_by(Round.id.desc()))
-
-
 def _rows(session: Session, me: Participant, round_id: int | None) -> list[dict]:
     proposals = _active_proposals(session, round_id)
     my_ratings = {r.proposal_id: r.stars for r in session.scalars(
@@ -73,8 +59,8 @@ def _rows(session: Session, me: Participant, round_id: int | None) -> list[dict]
 def app_home(request: Request, token=Depends(require_participant),
              session: Session = Depends(get_session)):
     me, event = _me_event(session, token)
-    published = _latest_round(session, event.id, "published")
-    collecting = _input_round(session, event.id)
+    published = RD.published_round(session, event.id)
+    collecting = RD.input_round(session, event.id)
     rows = _rows(session, me, collecting.id) if collecting else []
     return render(request, "participant.html", me=me, event=event,
                   rows=rows, published=published, collecting=collecting)
@@ -86,7 +72,7 @@ def propose(request: Request, title: str = Form(...), description: str = Form(""
             token=Depends(require_participant), session: Session = Depends(get_session),
             _: None = Depends(require_csrf)):
     me, event = _me_event(session, token)
-    rnd = _input_round(session, event.id)
+    rnd = RD.input_round(session, event.id)
     if title.strip() and rnd:
         P.propose(session, event_id=event.id, title=title, created_by=me.id,
                   description=description or None, round_id=rnd.id,
@@ -95,20 +81,24 @@ def propose(request: Request, title: str = Form(...), description: str = Form(""
     return render(request, "_rate_list.html", me=me, rows=rows)
 
 
+def _row_response(request: Request, session: Session, me: Participant, event: Event,
+                  proposal_id: int):
+    """The changed rating row, plus the unrated count (out of band)."""
+    rnd = RD.input_round(session, event.id)
+    rows = _rows(session, me, rnd.id if rnd else None)
+    row = next(r for r in rows if r["p"].id == proposal_id)
+    unrated_count = sum(1 for r in rows if not r["rated"])
+    return render(request, "_rate_row_oob.html", me=me, r=row, unrated_count=unrated_count)
+
+
 @router.post("/rate")
 def rate(request: Request, proposal_id: int = Form(...), stars: int = Form(...),
          token=Depends(require_participant), session: Session = Depends(get_session),
          _: None = Depends(require_csrf)):
     me, event = _me_event(session, token)
     owned_proposal(session, proposal_id, event.id)
-    if not 1 <= stars <= 5:
-        raise HTTPException(status_code=400, detail="stars must be 1..5")
     RT.set_rating(session, participant_id=me.id, proposal_id=proposal_id, stars=stars)
-    rnd = _input_round(session, event.id)
-    rows = _rows(session, me, rnd.id if rnd else None)
-    row = next(r for r in rows if r["p"].id == proposal_id)
-    unrated_count = sum(1 for r in rows if not r["rated"])
-    return render(request, "_rate_row_oob.html", me=me, r=row, unrated_count=unrated_count)
+    return _row_response(request, session, me, event, proposal_id)
 
 
 @router.post("/runner-toggle")
@@ -120,11 +110,7 @@ def runner_toggle(request: Request, proposal_id: int = Form(...), on: int = Form
     P.set_runner(session, proposal_id, me.id, bool(on))
     if on:  # running implies max interest
         RT.set_rating(session, participant_id=me.id, proposal_id=proposal_id, stars=5)
-    rnd = _input_round(session, event.id)
-    rows = _rows(session, me, rnd.id if rnd else None)
-    row = next(r for r in rows if r["p"].id == proposal_id)
-    unrated_count = sum(1 for r in rows if not r["rated"])
-    return render(request, "_rate_row_oob.html", me=me, r=row, unrated_count=unrated_count)
+    return _row_response(request, session, me, event, proposal_id)
 
 
 @router.get("/app/rate-since")
@@ -133,7 +119,7 @@ def rate_since(request: Request, after: int = 0, token=Depends(require_participa
     """Append-only feed of sessions proposed after `after` (id) — the rate page polls
     this and appends, so existing rows never move (no scroll jumps / misclicks)."""
     me, event = _me_event(session, token)
-    rnd = _input_round(session, event.id)
+    rnd = RD.input_round(session, event.id)
     rows = _rows(session, me, rnd.id) if rnd else []
     new = [r for r in rows if r["p"].id > after]
     unrated_count = sum(1 for r in rows if not r["rated"])
@@ -144,7 +130,7 @@ def _own_editable(session: Session, me, event, proposal_id: int):
     """Resolve a proposal the caller may edit: theirs, and in the open round."""
     owned_proposal(session, proposal_id, event.id)
     p = session.get(Proposal, proposal_id)
-    rnd = _input_round(session, event.id)
+    rnd = RD.input_round(session, event.id)
     if p.created_by != me.id or rnd is None or p.round_id != rnd.id:
         raise HTTPException(status_code=403, detail="can't edit this proposal")
     return p, rnd
@@ -214,7 +200,7 @@ def build_published_grid(session: Session, event: Event, rnd: Round,
 def published(request: Request, token=Depends(require_participant),
               session: Session = Depends(get_session)):
     me, event = _me_event(session, token)
-    rnd = _latest_round(session, event.id, "published")
+    rnd = RD.published_round(session, event.id)
     if rnd is None:
         return render(request, "published.html", me=me, event=event, rnd=None, grid=[])
     grid = build_published_grid(session, event, rnd, RD.assignments_of(session, rnd.id, me.id))
@@ -225,11 +211,10 @@ def published(request: Request, token=Depends(require_participant),
 @router.get("/present/{code}")
 def present(request: Request, code: str, session: Session = Depends(get_session)):
     """Wide, large-type projector view of the published schedule (auto-refreshing)."""
-    from datetime import datetime, timezone, timedelta
     event = session.scalar(select(Event).where(Event.participant_code == code))
     if event is None:
         raise HTTPException(status_code=404, detail="unknown event")
-    rnd = _latest_round(session, event.id, "published")
+    rnd = RD.published_round(session, event.id)
     grid = build_published_grid(session, event, rnd) if rnd else []
     now = datetime.now(timezone.utc)
     now_ids = set()
@@ -249,7 +234,7 @@ def public_schedule(request: Request, code: str, session: Session = Depends(get_
     event = session.scalar(select(Event).where(Event.participant_code == code))
     if event is None:
         raise HTTPException(status_code=404, detail="unknown event")
-    rnd = _latest_round(session, event.id, "published")
+    rnd = RD.published_round(session, event.id)
     grid = build_published_grid(session, event, rnd) if rnd else []
     return render(request, "published.html", me=None, event=event, rnd=rnd,
                   grid=grid, public=True, join_code=event.participant_code,
