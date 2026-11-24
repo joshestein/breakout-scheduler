@@ -55,6 +55,7 @@ input.sm,.inrow.sm input{height:var(--ctl-sm);padding:0 8px;font-size:var(--sm)}
 .btn.block{width:100%;padding:11px 18px;font-size:var(--md)}
 .btn.sm{padding:3px 12px;font-size:var(--xs);border-color:var(--line-strong);background:var(--white)}
 .btn.sm:hover{border-color:var(--text)}
+.btn.sm.primary{background:var(--primary);border-color:var(--primary);color:var(--bg)}
 .btn.sm.danger{color:var(--danger)}
 .btn.sm.danger:hover{border-color:var(--danger)}
 .btn.sm.on{background:var(--accent-bg);border-color:var(--accent-bg)}
@@ -93,10 +94,7 @@ details.act>summary{list-style:none;display:inline-flex}
 details.act>summary::-webkit-details-marker{display:none}
 details.act[open]>summary{display:none}
 details.act[open]{flex-basis:100%}
-.editbox{display:grid;gap:8px}
-.acts.between{justify-content:space-between}
-/* a ghost button at the row end: its text, not its padding, lines up with the edge */
-.acts.between>:last-child .btn.ghost{margin-right:-14px}
+
 
 /* ---- header ---- */
 .top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;
@@ -128,7 +126,14 @@ main{display:block}
 .rr-main{min-width:0;display:grid;gap:2px;align-content:start}
 .rr-title{overflow-wrap:anywhere}
 .rr-meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:var(--xs);color:var(--muted)}
-.rr-meta details.act[open]{margin:6px 0 4px}
+/* edit own session in place: the title becomes the field and the row is full width */
+.rrow:has(details.act[open]){display:block}
+.rrow:has(details.act[open]) :is(.rr-title,.rr-main>.prose,.rr-meta>span,.stars,.rr-side){display:none}
+.editbox{display:grid;gap:8px}
+.titlein{height:var(--ctl);font-size:var(--md);font-weight:700;color:var(--text)}
+.editfoot{display:flex;gap:6px;align-items:center}
+/* the ghost button at the row end: its text, not its padding, lines up with the edge */
+.editfoot>form{margin-left:auto;margin-right:-14px}
 .rr-side{display:grid;gap:8px;justify-items:end;align-content:start;flex-shrink:0}
 .col .btn.sm{padding:6px 14px;min-height:32px}
 .col .inrow.sm .btn,.col .inrow.sm input{height:32px}

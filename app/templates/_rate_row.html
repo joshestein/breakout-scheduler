@@ -8,14 +8,17 @@
       {% if r.p.min_interest_override %}<span title="Runs only if at least {{ r.p.min_interest_override }} people besides the host come">Needs {{ r.p.min_interest_override }} people to run.</span>{% endif %}
       {% if r.mine %}
       <details class="act"><summary class="btn sm">Edit</summary>
+        {# edit in place: while this is open, CSS hides the title, stars and host button of the row #}
         <div class="editbox">
-          <form hx-post="/propose-edit" hx-target="#rate-list" hx-swap="outerHTML" class="inrow sm">
+          <form id="edit-{{ r.p.id }}" hx-post="/propose-edit" hx-target="#rate-list" hx-swap="outerHTML">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="proposal_id" value="{{ r.p.id }}">
-            <input name="title" value="{{ r.p.title }}" maxlength="200" aria-label="Session title"><button class="btn sm">Save</button>
+            <input class="titlein" name="title" value="{{ r.p.title }}" maxlength="200" required aria-label="Session title">
           </form>
-          <div class="acts between">
-            <button type="button" class="btn sm" data-close>Cancel</button>
+          {% if r.p.description %}<p class="prose small muted">{{ r.p.description }}</p>{% endif %}
+          <div class="editfoot">
+            <button class="btn sm primary" form="edit-{{ r.p.id }}">Save</button>
+            <button type="reset" class="btn sm ghost" form="edit-{{ r.p.id }}" data-close>Cancel</button>
             <form hx-post="/propose-delete" hx-target="#rate-list" hx-swap="outerHTML" hx-confirm="Delete your session “{{ r.p.title }}”?">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <input type="hidden" name="proposal_id" value="{{ r.p.id }}"><button class="btn sm ghost danger">Delete session</button>
