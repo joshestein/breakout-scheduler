@@ -2,8 +2,8 @@
   <div class="rr-main">
     <h2 class="rr-title">{{ r.p.title }}</h2>
     {% if r.p.description %}<p class="prose small muted">{{ r.p.description }}</p>{% endif %}
-    {% if r.p.max_attendees or r.p.min_interest_override or r.mine %}
     <div class="rr-meta">
+      <span class="rr-hosts">{% if r.hosts %}Hosted by {{ r.hosts | join(", ") }}.{% else %}No host yet.{% endif %}</span>
       {% if r.p.max_attendees %}<span title="The host allows a maximum of {{ r.p.max_attendees }} people besides the host">Maximum {{ r.p.max_attendees }} people.</span>{% endif %}
       {% if r.p.min_interest_override %}<span title="Runs only if at least {{ r.p.min_interest_override }} people besides the host come">Needs {{ r.p.min_interest_override }} people to run.</span>{% endif %}
       {% if r.mine %}
@@ -28,7 +28,6 @@
       </details>
       {% endif %}
     </div>
-    {% endif %}
     <div class="stars" role="radiogroup" aria-label="How much you want to attend">
       {% set labels = {1:"Will not go",2:"Rather not",3:"Maybe",4:"Want to go",5:"Must go"} %}
       {% for n in [1,2,3,4,5] %}

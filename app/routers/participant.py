@@ -39,6 +39,14 @@ def _rows(session: Session, me: Participant, round_id: int | None) -> list[dict]
         select(Rating).where(Rating.participant_id == me.id))}
     my_runner = {pr.proposal_id for pr in session.scalars(
         select(ProposalRunner).where(ProposalRunner.participant_id == me.id))}
+    hosts: dict[int, list[str]] = {}
+    if proposals:
+        for pid, name in session.execute(
+                select(ProposalRunner.proposal_id, Participant.display_name)
+                .join(Participant, Participant.id == ProposalRunner.participant_id)
+                .where(ProposalRunner.proposal_id.in_([p.id for p in proposals]))
+                .order_by(ProposalRunner.id)):
+            hosts.setdefault(pid, []).append(name)
     rows = []
     for p in proposals:
         interested = session.scalar(select(func.count(Rating.id)).where(
@@ -47,6 +55,7 @@ def _rows(session: Session, me: Participant, round_id: int | None) -> list[dict]
             "p": p,
             "stars": my_ratings.get(p.id, 0),
             "is_runner": p.id in my_runner,
+            "hosts": hosts.get(p.id, []),
             "interested": interested,   # shown regardless of rater count
             "rated": p.id in my_ratings,
             "mine": p.created_by == me.id,   # proposer can edit/delete their own
