@@ -177,3 +177,6 @@ def test_apply_result_rejects_infeasible_and_keeps_grid(session):
     with pytest.raises(ValueError):
         RD.apply_result(session, rnd.id, replace(good, status="INFEASIBLE", placements=[]))
     assert session.query(Placement).count() == before
+    with pytest.raises(ValueError, match="ran out of time"):
+        RD.apply_result(session, rnd.id, replace(good, status="UNKNOWN", placements=[]))
+    assert session.query(Placement).count() == before
