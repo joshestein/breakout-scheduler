@@ -1,58 +1,58 @@
 {% extends "base.html" %}
-{% block title %}Schedule — {{ event.name }}{% endblock %}
+{% block title %}Schedule: {{ event.name }}{% endblock %}
 {% block page %}published{% endblock %}
 {% block content %}
-<div class="phone">
+<div class="col">
   {% if public %}
-    <div class="banner">{{ event.name }} · <a href="/j/{{ join_code }}">enter your name to propose &amp; vote on sessions →</a></div>
+    <div class="note"><b>{{ event.name }}</b>. <a href="/j/{{ join_code }}">Enter your name to propose and rate sessions</a></div>
   {% endif %}
   {% if not rnd %}
-    <div class="banner">No published schedule yet.{% if public %} <a href="/j/{{ join_code }}">Join →</a>{% endif %}</div>
+    <div class="note">No schedule is published yet.{% if public %} <a href="/j/{{ join_code }}">Join</a>{% endif %}</div>
   {% else %}
-    <h1 class="sched-title">{{ rnd.name }}</h1>
-    <div class="sched-tools">
-      {% if public %}<a class="lnk" href="/present/{{ join_code }}" target="_blank">open projector view ↗</a>{% endif %}
-      {% if schedule_md %}<button type="button" class="btn small" data-copy="#sched-md">copy as markdown</button>
-      <textarea id="sched-md" class="offscreen" readonly>{{ schedule_md }}</textarea>{% endif %}
-    </div>
+    <h1>{{ rnd.name }}</h1>
     {% for slot in grid %}
       <section class="slot-card" data-ts="{{ slot.ts.id }}"
                {% if slot.ts.started_at %}data-started="{{ slot.ts.started_at | utciso }}"{% endif %}
                data-duration="{{ slot.ts.duration_minutes }}">
-        <div class="slot-head">
+        <header>
           <h2>{{ slot.ts.name }}</h2>
           <span class="countdown" aria-live="polite"></span>
-        </div>
-        {% if not public and slot.cells and not slot.highlight %}<div class="hint">No seat was picked for you here. Go to any session with space.</div>{% endif %}
+        </header>
+        {% if not public and slot.cells and not slot.highlight %}<div class="seat-note">No seat was picked for you here. Go to any session with space.</div>{% endif %}
         <ul class="slot-rooms">
           {% for c in slot.cells %}
           <li class="{% if c.key == slot.highlight %}go{% endif %}">
             <span class="where">{{ c.room_label }}</span>
-            <span class="what">{{ c.title }}{% if c.cap %} <span class="cap-chip" title="host caps this at {{ c.cap }}">cap {{ c.cap }}</span>{% endif %}</span>
-            {% if c.key == slot.highlight %}<span class="badge">{{ 'most wanted' if public else '→ your seat' }}</span>{% endif %}
+            <span class="what">{{ c.title }}{% if c.cap %} <span class="xs muted" title="The host allows a maximum of {{ c.cap }} people">Maximum {{ c.cap }}</span>{% endif %}</span>
+            {% if c.key == slot.highlight %}<span class="tag ok">{{ 'Most wanted' if public else 'Your seat' }}</span>{% endif %}
           </li>
           {% else %}
-          <li class="empty">— nothing scheduled —</li>
+          <li class="empty">Nothing is scheduled.</li>
           {% endfor %}
         </ul>
       </section>
     {% endfor %}
-    <button id="notify-btn" class="btn small" type="button">Enable session alerts</button>
+    <div class="actions">
+      <button id="notify-btn" class="btn" type="button">Enable session alerts</button>
+      {% if schedule_md %}<button type="button" class="btn" data-copy="#sched-md">Copy as Markdown</button>
+      <textarea id="sched-md" class="offscreen" readonly>{{ schedule_md }}</textarea>{% endif %}
+      {% if public %}<a class="btn" href="/present/{{ join_code }}" target="_blank">Open projector view</a>{% endif %}
+    </div>
     {% if push_key %}
-    <p class="fineprint" id="notify-note">Get a notification when your session starts — even with the tab closed.</p>
-    <div id="ios-install" class="ios-install" hidden>
-      <div class="ios-title">📲 To get alerts on iPhone</div>
-      <ol class="ios-steps">
+    <p class="xs muted" id="notify-note">You get a notification when your session starts. The tab can be closed.</p>
+    <div id="ios-install" class="note" hidden>
+      <b>To get alerts on iPhone</b>
+      <ol class="steps">
         <li>Tap the <b>Share</b> button
           <svg class="ios-share" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M12 15V4M8.5 7.5 12 4l3.5 3.5M6 11h2m8 0h2v8H6v-8h2"/></svg>
-          in Safari's toolbar.</li>
-        <li>Choose <b>Add to Home Screen</b>.</li>
+          in the Safari toolbar.</li>
+        <li>Select <b>Add to Home Screen</b>.</li>
         <li>Open <b>Breakouts</b> from your Home Screen.</li>
-        <li>Come back to the schedule and tap <b>Enable session alerts</b>.</li>
+        <li>Go back to the schedule and tap <b>Enable session alerts</b>.</li>
       </ol>
     </div>
     {% else %}
-    <p class="fineprint">Alerts fire while this page is open. The schedule above is the source of truth.</p>
+    <p class="xs muted">Alerts work only while this page is open. The schedule on this page is always correct.</p>
     {% endif %}
   {% endif %}
 </div>

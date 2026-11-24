@@ -6,8 +6,9 @@
   <meta name="csrf-token" content="{{ csrf_token }}">
   {% if push_key %}<meta name="vapid-key" content="{{ push_key }}">{% endif %}
   <link rel="manifest" href="/static/manifest.webmanifest">
+  <link rel="icon" href="/static/poi-mark.svg" type="image/svg+xml">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="theme-color" content="#cf432a">
+  <meta name="theme-color" content="#537469">
   <title>{% block title %}Breakouts{% endblock %}</title>
   <link rel="stylesheet" href="/static/fonts.css?v={{ css_v }}">
   <link rel="stylesheet" href="/static/styles.css?v={{ css_v }}">
@@ -16,16 +17,13 @@
   <script src="/static/app.js?v={{ js_v }}" defer></script>
 </head>
 <body hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}' data-page="{% block page %}{% endblock %}">
-  <header class="masthead">
-    <a href="/" class="brand">
-      <span class="brand-mark" aria-hidden="true">❡</span>
-      <span class="brand-name">Breakouts</span>
-    </a>
-    <nav class="masthead-nav">
+  <header class="top">
+    <a href="/" class="brand"><span class="mark" aria-hidden="true"></span>Breakouts</a>
+    <nav>
       {% if session %}
-        {% if session.is_admin %}<a href="/admin">console</a>{% endif %}
-        <a href="/app">rate</a><a href="/published">schedule</a>
-        <a href="/logout" class="muted">exit</a>
+        {% if session.is_admin %}<a href="/admin">Console</a>{% endif %}
+        <a href="/app">Rate</a><a href="/published">Schedule</a>
+        <a href="/logout">Exit</a>
       {% endif %}
     </nav>
   </header>

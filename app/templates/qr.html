@@ -2,10 +2,10 @@
 {% block title %}Join {{ event.name }}{% endblock %}
 {% block content %}
 <div class="qrpage">
-  <div class="qr-kicker">scan to join</div>
-  <h1 class="qr-title">{{ event.name }}</h1>
+  <p class="muted">Scan to join</p>
+  <h1>{{ event.name }}</h1>
   <div class="qr-big" data-qr="{{ join_url }}" data-qr-cell="10"></div>
   <div class="qr-url">{{ join_url }}</div>
-  <div class="qr-hint">or go to the link and enter your name</div>
+  <p class="muted">Or go to the link and enter your name.</p>
 </div>
 {% endblock %}

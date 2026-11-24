@@ -1,239 +1,248 @@
 <div id="console-main" hx-target="#console-main" hx-swap="outerHTML">
 <div class="console">
-  <h1 class="offscreen">Organizer console{% if event %} — {{ event.name }}{% endif %}</h1>
+  <h1 class="offscreen">Organizer console{% if event %}: {{ event.name }}{% endif %}</h1>
 
-  <aside class="rail left" id="left-rail" data-keep="rail">
+  <aside class="rail" id="left-rail" data-keep="rail">
     <div class="rail-sec">
-      <div class="eventname">{{ event.name }}</div>
-      <details class="mini share" data-keep="share"><summary>share &amp; QR</summary>
-        <div class="tiny muted">Participant link — code built in, they just enter a name:</div>
-        <div class="copyrow"><input class="sharein" id="join-url" readonly value="{{ join_url }}" onclick="this.select()">
-          <button type="button" class="btn small" data-copy="#join-url">copy</button></div>
-        <div class="qrbox" data-qr="{{ join_url }}" title="scan to join"></div>
-        <a class="lnk" href="/admin/qr?round_id={{ rnd.id if rnd else '' }}" target="_blank">open big QR to project ↗</a>
-        <div class="tiny muted" style="margin-top:.5rem">Public schedule (view-only, no sign-in):</div>
-        <div class="copyrow"><input class="sharein" id="sched-url" readonly value="{{ schedule_url }}" onclick="this.select()">
-          <button type="button" class="btn small" data-copy="#sched-url">copy</button></div>
-      </details>
-      <div class="rounds">
-        {% for r in all_rounds if r.status in ('draft', 'collecting') %}
-          <a class="chip {% if rnd and r.id == rnd.id %}active{% endif %}" href="/admin?round_id={{ r.id }}">{{ r.name }}<small>{{ r.status }}</small></a>
+      <h2>{{ event.name }}</h2>
+      {% set open_rounds = all_rounds | selectattr('status', 'in', ['draft', 'collecting']) | list %}
+      {% if open_rounds %}
+      <div class="seg">
+        {% for r in open_rounds %}
+          <a class="{% if rnd and r.id == rnd.id %}on{% endif %}" href="/admin?round_id={{ r.id }}">{{ r.name }}<small>{{ 'Collecting ratings' if r.status == 'collecting' else 'Draft' }}</small></a>
         {% endfor %}
-        <details class="mini inline"><summary>new round</summary>
-          <form method="post" action="/admin/round" hx-post="/admin/round" class="stack">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <input name="name" placeholder="Round name" required>
-            <label class="tiny">min people per session<input name="min_interest" type="number" value="2" min="1"></label>
-            <button class="btn small">create</button>
-          </form>
-        </details>
       </div>
+      {% endif %}
+      <details class="act"><summary class="btn sm">New round</summary>
+        <form method="post" action="/admin/round" hx-post="/admin/round" class="form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input class="sm" name="name" placeholder="Round name" aria-label="Round name" required>
+          <label>Minimum people for each session<input class="num sm" name="min_interest" type="number" value="2" min="1"></label>
+          <div class="acts"><button class="btn sm">Create round</button><button type="button" class="btn sm ghost" data-close>Cancel</button></div>
+        </form>
+      </details>
       {% set past = all_rounds | selectattr('status', 'in', ['published', 'archived']) | list %}
       {% if past %}
-      <details class="mini past-rounds" data-keep="past-rounds"><summary>past rounds · {{ past|length }}</summary>
-        {% for r in past %}<a class="chip ghost {% if rnd and r.id == rnd.id %}active{% endif %}" href="/admin?round_id={{ r.id }}">{{ r.name }}<small>{{ r.status }}</small></a>{% endfor %}
+      <details class="more" data-keep="past-rounds"><summary>Past rounds ({{ past|length }})</summary>
+        <div class="linklist">
+        {% for r in past %}<a class="{% if rnd and r.id == rnd.id %}on{% endif %}" href="/admin?round_id={{ r.id }}">{{ r.name }}<span class="tag">{{ r.status|capitalize }}</span></a>{% endfor %}
+        </div>
       </details>
       {% endif %}
+      <details class="more" data-keep="share"><summary>Share link and QR code</summary>
+        <div class="form">
+          <label>Participant link. The code is in the link, so people enter only a name.
+            <span class="copyrow"><input id="join-url" readonly value="{{ join_url }}" onclick="this.select()">
+              <button type="button" class="btn sm ghost" data-copy="#join-url">Copy</button></span></label>
+          <div class="qrbox" data-qr="{{ join_url }}" title="Scan to join"></div>
+          <div><a class="btn sm ghost" href="/admin/qr?round_id={{ rnd.id if rnd else '' }}" target="_blank">Open large QR code</a></div>
+          <label>Public schedule. View only, no sign-in.
+            <span class="copyrow"><input id="sched-url" readonly value="{{ schedule_url }}" onclick="this.select()">
+              <button type="button" class="btn sm ghost" data-copy="#sched-url">Copy</button></span></label>
+        </div>
+      </details>
     </div>
 
     {% if rnd %}
     <div class="rail-sec">
-      <form method="post" action="/admin/round-settings" hx-post="/admin/round-settings" class="settings">
+      <form method="post" action="/admin/round-settings" hx-post="/admin/round-settings" class="form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="round_id" value="{{ rnd.id }}">
-        <details class="mini" data-keep="how"><summary>how does Generate choose?</summary>
-          <p class="explain">1. Leave as few people as possible with nothing to attend in a slot.<br>
-            2. Then seat people in sessions they rated highly: ★3 = 1 point, ★4 = 2, ★5 = 3. Hosts get no points for their own session.<br>
-            3. On a tie, the earlier proposal wins.<br>
-            A session runs only if at least the minimum below of people <b>other than its hosts</b> are seated. Pinned sessions skip this rule.</p>
+        <label>Minimum people for each session
+          <span class="inrow sm"><input class="num" name="min_interest" type="number" value="{{ rnd.min_interest }}" min="1"><button class="btn sm">Apply</button></span>
+        </label>
+        <span class="hint">Hosts do not count. A proposer can set a different number.</span>
+        <details class="more" data-keep="how"><summary>How does Generate choose?</summary>
+          <ol class="steps">
+            <li>It leaves as few people as possible with nothing to attend in a slot.</li>
+            <li>Then it seats people in sessions they rated highly: ★3 = 1 point, ★4 = 2, ★5 = 3. Hosts get no points for their own session.</li>
+            <li>On a tie, the earlier proposal wins.</li>
+          </ol>
+          <p class="hint">A session runs only if the minimum number of people <b>other than its hosts</b> are seated. Pinned sessions skip this rule.</p>
         </details>
-        <label class="tiny">min people per session <input name="min_interest" type="number" value="{{ rnd.min_interest }}" min="1"></label>
-        <span class="muted tiny">= people besides the hosts who must be seated for a session to run. A proposer can set their own number.</span>
-        <button class="btn small">apply</button>
       </form>
     </div>
 
-    <div class="rail-sec scroll" data-keep="pool">
-      <h2 class="rail-label">Pool <small>{{ pool|length }}</small></h2>
-      <form method="post" action="/admin/add-session" hx-post="/admin/add-session" class="addsession">
+    <div class="rail-sec">
+      <h3>Sessions <span>{{ pool|length }}</span></h3>
+      <form method="post" action="/admin/add-session" hx-post="/admin/add-session" class="inrow sm">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="round_id" value="{{ rnd.id }}">
-        <input name="title" placeholder="＋ add a session…" required maxlength="200" autocomplete="off">
-        <button class="btn small">add</button>
+        <input name="title" placeholder="Add a session" aria-label="Session title" required maxlength="200" autocomplete="off">
+        <button class="btn sm">Add</button>
       </form>
+      <div class="items">
       {% for x in pool %}
-      <div class="pool-item">
-        <div class="pi-title"><span class="pi-name">{{ x.p.title }}</span>
-          {% if x.p.max_attendees %}<span class="badge2" title="the host caps it at {{ x.p.max_attendees }} people besides the hosts">cap {{ x.p.max_attendees }}</span>{% endif %}
-          {% if x.p.min_interest_override is not none %}<span class="badge2" title="the host set their own minimum{% if x.floor != x.p.min_interest_override %}, lowered to fit the host's cap or the biggest room{% endif %}">min {{ x.floor }}</span>
-          {% elif x.floor != rnd.min_interest %}<span class="badge2" title="the round minimum ({{ rnd.min_interest }}) is lowered to fit the host's cap or the biggest room">min {{ x.floor }}</span>{% endif %}
-        </div>
-        <div class="pi-agg">
-          <span class="pill" title="people besides the hosts who rated it ★3 or more">♥ {{ x.interested }}</span>
-          <span class="muted tiny">{{ ('host: ' ~ (x.hosts | join(', '))) if x.hosts else 'no host' }}</span>
-          <span class="muted tiny">{{ x.n_raters }} rated · avg ★{{ x.avg }}</span>
-        </div>
-        <div class="pi-status {% if not x.where %}off{% endif %}">{{ ('on the grid: ' ~ x.where) if x.where else x.why }}</div>
-        <div class="pi-actions">
-          <details class="mini inline name-edit"><summary><span class="t-edit">rename</span><span class="t-cancel">cancel</span></summary>
-            <form method="post" action="/admin/proposal-edit" hx-post="/admin/proposal-edit" class="inline-edit">
+      <div class="item">
+        <b class="pi-name">{{ x.p.title }}</b>
+        <span class="xs muted">{{ ('Host: ' ~ (x.hosts | join(', '))) if x.hosts else 'No host yet' }}.
+          <span title="People besides the hosts who rated it ★3 or more">{{ x.interested }} interested.</span>
+          {{ x.n_raters }} rated{% if x.n_raters %}, average {{ x.avg }}{% endif %}.</span>
+        <span class="tags">
+          {% if x.where %}<span class="tag ok">{{ x.where | replace(' · ', ', ') }}</span>
+          {% else %}<span class="tag">Not placed: {{ x.why }}</span>{% endif %}
+          {% if x.p.max_attendees %}<span class="tag" title="The host allows a maximum of {{ x.p.max_attendees }} people besides the hosts">Maximum {{ x.p.max_attendees }}</span>{% endif %}
+          {% if x.p.min_interest_override is not none %}<span class="tag" title="The host set a minimum{% if x.floor != x.p.min_interest_override %}. It is lowered to fit the host's maximum or the largest room{% endif %}">Minimum {{ x.floor }}</span>
+          {% elif x.floor != rnd.min_interest %}<span class="tag" title="The round minimum ({{ rnd.min_interest }}) is lowered to fit the host's maximum or the largest room">Minimum {{ x.floor }}</span>{% endif %}
+        </span>
+        <div class="acts">
+          <details class="act"><summary class="btn sm">Rename</summary>
+            <form method="post" action="/admin/proposal-edit" hx-post="/admin/proposal-edit" class="inrow sm">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}">
               <input type="hidden" name="proposal_id" value="{{ x.p.id }}">
-              <input name="title" value="{{ x.p.title }}" maxlength="300"><button class="lnk">save</button>
+              <input name="title" value="{{ x.p.title }}" maxlength="300" aria-label="Session title"><button class="btn sm">Save</button><button type="button" class="btn sm ghost" data-close>Cancel</button>
             </form>
           </details>
-          <form method="post" action="/admin/remove" hx-post="/admin/remove" hx-confirm="Remove “{{ x.p.title }}” from this round? Generate won't place it until you restore it.">
+          <form method="post" action="/admin/remove" hx-post="/admin/remove" hx-confirm="Remove “{{ x.p.title }}” from this round? Generate does not place it until you restore it.">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}">
-            <input type="hidden" name="proposal_id" value="{{ x.p.id }}"><button class="lnk">remove</button>
+            <input type="hidden" name="proposal_id" value="{{ x.p.id }}"><button class="btn sm ghost danger">Remove</button>
           </form>
         </div>
       </div>
-      {% else %}<div class="muted tiny">No sessions yet.</div>{% endfor %}
+      {% else %}<div class="hint">No sessions yet.</div>{% endfor %}
+      </div>
       {% if removed %}
-      <details class="mini" data-keep="removed"><summary>removed · {{ removed|length }}</summary>
+      <details class="more" data-keep="removed"><summary>Removed ({{ removed|length }})</summary>
+        <div class="items">
         {% for x in removed %}
-        <div class="pool-item removed">
-          <span class="pi-name">{{ x.p.title }}</span>
-          <form method="post" action="/admin/restore" hx-post="/admin/restore" class="inline">
+        <div class="item row">
+          <span class="pi-name muted">{{ x.p.title }}</span>
+          <form method="post" action="/admin/restore" hx-post="/admin/restore">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}">
-            <input type="hidden" name="proposal_id" value="{{ x.p.id }}"><button class="lnk">restore</button>
+            <input type="hidden" name="proposal_id" value="{{ x.p.id }}"><button class="btn sm">Restore</button>
           </form>
         </div>
         {% endfor %}
+        </div>
       </details>
       {% endif %}
     </div>
 
-    <div class="rail-sec scroll" data-keep="timeslots">
-      <h2 class="rail-label">Timeslots</h2>
+    <div class="rail-sec">
+      <h3>Timeslots <span>Name, minutes</span></h3>
       {% for ts in timeslots %}
-      <div class="ts-block">
-        <div class="ts-name">{{ ts.name }} <small>{{ ts.duration_minutes }}m</small>
-          <details class="mini inline"><summary>edit</summary>
-            <form method="post" action="/admin/timeslot-edit" hx-post="/admin/timeslot-edit" class="inline-edit">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><input type="hidden" name="timeslot_id" value="{{ ts.id }}">
-              <input name="name" value="{{ ts.name }}"><input name="duration_minutes" type="number" min="1" value="{{ ts.duration_minutes }}" class="capnum"><button class="lnk">save</button>
-            </form>
-            <form method="post" action="/admin/timeslot-delete" hx-post="/admin/timeslot-delete" hx-confirm="Delete “{{ ts.name }}”?">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><input type="hidden" name="timeslot_id" value="{{ ts.id }}"><button class="lnk"{% if rnd.status == 'published' %} data-double-confirm="“{{ ts.name }}” is on the PUBLISHED schedule. Deleting it removes it from what attendees see. Delete anyway?"{% endif %}>delete slot</button>
-            </form>
-          </details>
-        </div>
+      <div class="roomrow">
+        <form method="post" action="/admin/timeslot-edit" hx-post="/admin/timeslot-edit" class="inrow sm">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><input type="hidden" name="timeslot_id" value="{{ ts.id }}">
+          <input name="name" value="{{ ts.name }}" aria-label="Timeslot name"><input name="duration_minutes" type="number" min="1" value="{{ ts.duration_minutes }}" class="num" aria-label="Minutes">
+          <button class="btn sm">Save</button>
+        </form>
+        <form method="post" action="/admin/timeslot-delete" hx-post="/admin/timeslot-delete" hx-confirm="Delete “{{ ts.name }}”?">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><input type="hidden" name="timeslot_id" value="{{ ts.id }}"><button class="btn sm ghost danger"{% if rnd.status == 'published' %} data-double-confirm="“{{ ts.name }}” is on the PUBLISHED schedule. If you delete it, attendees do not see it. Delete it?"{% endif %}>Delete</button>
+        </form>
       </div>
-      {% else %}<div class="muted tiny">Add a timeslot (top of the board).</div>{% endfor %}
+      {% else %}<div class="hint">No timeslots yet.</div>{% endfor %}
     </div>
 
-    <div class="rail-sec scroll" data-keep="rooms">
-      <h2 class="rail-label">Rooms <small>used in every slot</small></h2>
-      <ul class="roomlist">{% for r in rooms %}<li class="roomrow">
-        <form method="post" action="/admin/room-edit" hx-post="/admin/room-edit" class="inline-edit">
+    <div class="rail-sec" id="rooms-sec">
+      <h3>Rooms <span>Name, seats</span></h3>
+      {% for r in rooms %}
+      <div class="roomrow">
+        <form method="post" action="/admin/room-edit" hx-post="/admin/room-edit" class="inrow sm">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}">
           <input type="hidden" name="room_id" value="{{ r.id }}">
-          <input name="name" value="{{ r.name }}"><input name="capacity" type="number" min="1" value="{{ r.capacity }}" class="capnum">
-          <button class="lnk">save</button>
+          <input name="name" value="{{ r.name }}" aria-label="Room name"><input name="capacity" type="number" min="1" value="{{ r.capacity }}" class="num" aria-label="Seats">
+          <button class="btn sm">Save</button>
         </form>
-        <form method="post" action="/admin/room-delete" hx-post="/admin/room-delete" hx-confirm="Delete “{{ r.name }}”? Removes its placements.">
+        <form method="post" action="/admin/room-delete" hx-post="/admin/room-delete" hx-confirm="Delete “{{ r.name }}”? This removes its sessions from the grid.">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}">
-          <input type="hidden" name="room_id" value="{{ r.id }}"><button class="lnk"{% if rnd.status == 'published' %} data-double-confirm="“{{ r.name }}” is used by the PUBLISHED schedule. Deleting it drops its sessions from what attendees see. Delete anyway?"{% endif %}>del</button>
+          <input type="hidden" name="room_id" value="{{ r.id }}"><button class="btn sm ghost danger"{% if rnd.status == 'published' %} data-double-confirm="“{{ r.name }}” is used by the PUBLISHED schedule. If you delete it, attendees do not see its sessions. Delete it?"{% endif %}>Delete</button>
         </form>
-      </li>{% endfor %}</ul>
-      <details class="mini"><summary>add room</summary>
-        <form method="post" action="/admin/rooms" hx-post="/admin/rooms" class="stack">
+      </div>
+      {% endfor %}
+      <details class="act"><summary class="btn sm">Add room</summary>
+        <form method="post" action="/admin/rooms" hx-post="/admin/rooms" class="inrow sm">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <input name="name" placeholder="Room name" required>
-          <input name="capacity" type="number" value="10" min="1" required>
-          <button class="btn small">add room</button>
+          <input name="name" placeholder="Room name" aria-label="Room name" required>
+          <input name="capacity" type="number" value="10" min="1" required class="num" aria-label="Seats">
+          <button class="btn sm">Add</button><button type="button" class="btn sm ghost" data-close>Cancel</button>
         </form>
       </details>
     </div>
     {% endif %}
   </aside>
 
-  <div class="center">
+  <div class="main">
     {% if not rnd %}
-      <div class="empty big">
-        <h2>Create a round to begin</h2>
-        <form method="post" action="/admin/round" hx-post="/admin/round" class="stack" style="max-width:280px;margin:1rem auto">
+      <div class="setup">
+        <h2>Create a round to start</h2>
+        <form method="post" action="/admin/round" hx-post="/admin/round" class="inrow">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <input name="name" placeholder="Round name (e.g. Afternoon)" required>
+          <input name="name" placeholder="Round name" aria-label="Round name" required autofocus>
           <button class="btn primary">Create round</button>
         </form>
       </div>
     {% elif not rooms %}
       {# Guided setup, step 1: rooms #}
-      <div class="setup-card">
-        <div class="stepno">Step 1 of 2 · Set up the board</div>
+      <div class="setup">
+        <span class="xs muted">Step 1 of 2</span>
         <h2>Create your rooms</h2>
-        <p class="explain">Rooms are the spaces breakouts run in. You add them once, and every timeslot uses all of them.</p>
-        <form method="post" action="/admin/rooms" hx-post="/admin/rooms" class="slotform">
+        <p class="prose muted">Rooms are the spaces where sessions run. You add them one time, and each timeslot uses all of them.</p>
+        <form method="post" action="/admin/rooms" hx-post="/admin/rooms" class="inrow">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <input name="name" placeholder="Room name (e.g. Library)" required autofocus>
-          <label class="tiny">capacity<input name="capacity" type="number" value="10" min="1"></label>
+          <input name="name" placeholder="Room name, for example Library" aria-label="Room name" required autofocus>
+          <label>Seats<input name="capacity" type="number" value="10" min="1"></label>
           <button class="btn primary">Add room</button>
         </form>
       </div>
     {% elif not timeslots %}
-      {# Guided setup, step 2: first timeslot — the prominent step #}
-      <div class="setup-card">
-        <div class="stepno">Step 2 of 2 · Set up the board</div>
+      {# Guided setup, step 2: first timeslot #}
+      <div class="setup">
+        <span class="xs muted">Step 2 of 2</span>
         <h2>Add your first timeslot</h2>
-        <p class="explain">A timeslot is a block of time. Generate fills every room with a breakout in each timeslot. You can add more slots later.</p>
-        <form method="post" action="/admin/timeslot" hx-post="/admin/timeslot" class="slotform big">
+        <p class="prose muted">A timeslot is a block of time. Generate puts one session in each room for each timeslot. You can add more timeslots later.</p>
+        <form method="post" action="/admin/timeslot" hx-post="/admin/timeslot" class="inrow">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="round_id" value="{{ rnd.id }}">
-          <input name="name" placeholder="name e.g. 14:00" required autofocus>
-          <label class="tiny">minutes<input name="duration_minutes" type="number" value="45"></label>
+          <input name="name" placeholder="Name, for example 14:00" aria-label="Timeslot name" required autofocus>
+          <label>Minutes<input name="duration_minutes" type="number" value="45"></label>
           <button class="btn primary">Add timeslot</button>
         </form>
-        <details class="mini"><summary>add another room</summary>
-          <form method="post" action="/admin/rooms" hx-post="/admin/rooms" class="slotform">
+        <details class="more"><summary>Add another room</summary>
+          <form method="post" action="/admin/rooms" hx-post="/admin/rooms" class="inrow">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <input name="name" placeholder="Room name" required>
-            <label class="tiny">cap<input name="capacity" type="number" value="10" min="1"></label>
-            <button class="btn small">add room</button>
+            <input name="name" placeholder="Room name" aria-label="Room name" required>
+            <label>Seats<input name="capacity" type="number" value="10" min="1"></label>
+            <button class="btn">Add room</button>
           </form>
         </details>
       </div>
     {% else %}
-      <div class="actionbar">
+      <div class="bar">
         {% set n_started = (timeslots | selectattr('started_at') | list | length) if timeslots else 0 %}
-        <form method="post" action="/admin/solve" hx-post="/admin/solve"{% if rnd.status == 'published' and not n_started %} hx-confirm="This round is PUBLISHED. Regenerating will REPLACE the schedule attendees can see. Continue?"{% endif %}>
+        <form method="post" action="/admin/solve" hx-post="/admin/solve"{% if rnd.status == 'published' and not n_started %} hx-confirm="This round is PUBLISHED. Generate replaces the schedule that attendees see. Continue?"{% endif %}>
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}">
           <input type="hidden" name="pin_started" value="1">
-          <button class="btn primary"{% if rnd.status == 'published' %} data-regen data-confirm1="This round is PUBLISHED. Regenerate and replace what attendees can see?"{% endif %}{% if n_started %} data-pin-ask="{{ n_started }} session(s) have already started. Keep them exactly where they are? OK = keep them · Cancel = re-solve everything (in-progress sessions may move)."{% endif %}>⚙ {{ 'Regenerate' if rnd.status == 'published' else 'Generate' }}</button>
+          <button class="btn primary"{% if rnd.status == 'published' %} data-regen data-confirm1="This round is PUBLISHED. Generate again and replace the schedule that attendees see?"{% endif %}{% if n_started %} data-pin-ask="{{ n_started }} session(s) have started. Keep them where they are? OK = keep them. Cancel = generate everything again (sessions in progress can move)."{% endif %}>{{ 'Generate again' if rnd.status == 'published' else 'Generate' }}</button>
         </form>
         {% if rnd.status == 'published' %}
-          <form method="post" action="/admin/unpublish" hx-post="/admin/unpublish"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><button class="btn">unpublish</button></form>
+          <form method="post" action="/admin/unpublish" hx-post="/admin/unpublish"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><button class="btn">Unpublish</button></form>
         {% else %}
-          <form method="post" action="/admin/publish" hx-post="/admin/publish" hx-confirm="Publish this schedule?"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><button class="btn go">✓ Publish</button></form>
+          <form method="post" action="/admin/publish" hx-post="/admin/publish" hx-confirm="Publish this schedule?"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><button class="btn go">Publish</button></form>
         {% endif %}
-        <details class="quick-slot inline"><summary class="btn small">＋ Timeslot</summary>
-          <form method="post" action="/admin/timeslot" hx-post="/admin/timeslot" class="slotform">
+        <details class="popover"><summary class="btn">Add timeslot</summary>
+          <form method="post" action="/admin/timeslot" hx-post="/admin/timeslot">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="round_id" value="{{ rnd.id }}">
-            <input name="name" placeholder="name e.g. 15:00" required>
-            <label class="tiny">min<input name="duration_minutes" type="number" value="45"></label>
-            <button class="btn small primary">add slot</button>
+            <label>Name<input name="name" placeholder="15:00" required></label>
+            <label>Minutes<input name="duration_minutes" type="number" value="45"></label>
+            <button class="btn primary">Add timeslot</button>
           </form>
         </details>
-        {% if schedule_md %}<button type="button" class="btn small" data-copy="#sched-md">copy as markdown</button>
+        {% if schedule_md %}<button type="button" class="btn ghost" data-copy="#sched-md">Copy as Markdown</button>
         <textarea id="sched-md" class="offscreen" readonly>{{ schedule_md }}</textarea>{% endif %}
-        <span class="status-tag {{ rnd.status }}">{{ rnd.status }}</span>
+        <span class="tag {% if rnd.status == 'published' %}ok{% endif %}">{{ 'Collecting ratings' if rnd.status == 'collecting' else rnd.status|capitalize }}</span>
       </div>
 
-      {% if rnd.status == 'published' %}
-        <div class="diag info">Published. Attendees see this grid live, so every change shows at once.</div>
-      {% endif %}
-
-      {# Diagnostic banner — always names the admin's next action #}
+      {# Diagnostic banner: always names the admin's next action #}
       {% if not pool %}
-        <div class="diag ok">✓ Board ready. Now add sessions (left rail) or have people propose &amp; rate at the participant link.</div>
+        <div class="note ok">The board is ready. Add sessions in the left panel, or ask people to propose and rate at the participant link.</div>
       {% elif n_eligible == 0 %}
-        <div class="diag warn">⚠ <b>No sessions are eligible yet.</b> {{ pool|length }} proposed · {{ n_rated }} {{ 'person has' if n_rated == 1 else 'people have' }} rated, but none has both a host and enough interested people besides its hosts (★3+). Get hosts and ratings, lower “min people per session”, or place a session by hand.</div>
+        <div class="note bad"><b>No sessions are eligible yet.</b> {{ pool|length }} proposed. {{ n_rated }} {{ 'person has' if n_rated == 1 else 'people have' }} rated, but no session has a host and sufficient interested people besides its hosts (★3 or more). Get hosts and ratings, decrease “Minimum people for each session”, or place a session by hand.</div>
       {% elif not placements %}
-        <div class="diag ok">✓ <b>{{ n_eligible }}</b> eligible session{{ 's' if n_eligible != 1 }}. Click <b>⚙ Generate</b>.</div>
+        <div class="note ok"><b>{{ n_eligible }}</b> eligible session{{ 's' if n_eligible != 1 }}. Click <b>Generate</b>.</div>
       {% else %}
-        <div class="diag info">{{ placements|length }} on the grid · {{ unplaced|length }} not · {{ n_rated }} {{ 'person has' if n_rated == 1 else 'people have' }} rated</div>
+        <div class="note">{% if rnd.status == 'published' %}<b>Published.</b> Attendees see each change immediately. {% endif %}{{ placements|length }} on the grid. {{ unplaced|length }} not placed. {{ n_rated }} {{ 'person has' if n_rated == 1 else 'people have' }} rated.</div>
       {% endif %}
 
       {# refresh every 5s, but not while the admin is using a control in the grid #}

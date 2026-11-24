@@ -1,31 +1,36 @@
 {% extends "base.html" %}
-{% block title %}Rate — {{ event.name }}{% endblock %}
+{% block title %}Rate: {{ event.name }}{% endblock %}
 {% block page %}participant{% endblock %}
 {% block content %}
-<div class="phone">
+<div class="col">
   {% if collecting %}
-    <div class="banner live">● <b>{{ collecting.name }}</b> — rating open</div>
+    <div>
+      <h1>{{ collecting.name }}</h1>
+      <p class="prose muted">Rating is open. Propose sessions and rate the sessions you want to attend.</p>
+    </div>
   {% elif published %}
-    <div class="banner done">✓ <b>{{ published.name }}</b> published — <a href="/published">go to your session →</a></div>
+    <div class="note ok"><b>{{ published.name }}</b> is published. <a href="/published">Go to your session</a></div>
   {% else %}
-    <div class="banner">Waiting for the organizer to open a round.</div>
+    <div class="note">Waiting for the organizer to open a round.</div>
   {% endif %}
 
   <form class="propose" method="post" action="/propose"
         hx-post="/propose" hx-target="#rate-list" hx-swap="outerHTML"
         hx-on::after-request="if (event.detail.successful) this.reset()">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <input name="title" placeholder="Propose a breakout…" required maxlength="200" autocomplete="off">
-    <button class="btn primary" type="submit" aria-label="Add proposal">＋</button>
-    <details class="propose-opts">
-      <summary>session options</summary>
-      <div class="opt-grid">
-        <label class="opt-desc">Description <span class="tiny dim">(optional)</span>
-          <textarea name="description" rows="2" maxlength="1000" placeholder="A sentence on what it's about…"></textarea></label>
-        <label>Only run if at least
-          <input name="min_attendees" type="number" min="1" max="999" inputmode="numeric" placeholder="—"> people besides me come</label>
-        <label>Cap attendance at
-          <input name="max_attendees" type="number" min="1" max="999" inputmode="numeric" placeholder="—"> people besides me <span class="tiny dim">(small workshops)</span></label>
+    <div class="inrow">
+      <input name="title" placeholder="Propose a session" aria-label="Session title" required maxlength="200" autocomplete="off">
+      <button class="btn primary" type="submit" aria-label="Add proposal">Add</button>
+    </div>
+    <details class="more">
+      <summary>Session options</summary>
+      <div class="opts">
+        <label>Description (optional)
+          <textarea name="description" rows="2" maxlength="1000" placeholder="One sentence about the session"></textarea></label>
+        <label class="inline">Run only if at least
+          <input class="num sm" name="min_attendees" type="number" min="1" max="999" inputmode="numeric" aria-label="Minimum people"> people besides me come</label>
+        <label class="inline">Allow a maximum of
+          <input class="num sm" name="max_attendees" type="number" min="1" max="999" inputmode="numeric" aria-label="Maximum people"> people besides me</label>
       </div>
     </details>
   </form>

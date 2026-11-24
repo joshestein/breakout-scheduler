@@ -1,21 +1,21 @@
 {% extends "base.html" %}
-{% block title %}{{ event.name }} — schedule{% endblock %}
+{% block title %}Schedule: {{ event.name }}{% endblock %}
 {% block page %}present{% endblock %}
 {% block content %}
 <div class="present">
   {% if not rnd %}
-    <div class="empty big"><h2>No schedule published yet</h2></div>
+    <div class="empty"><h2>No schedule is published yet</h2></div>
   {% else %}
-    <h1 class="sched-title">{{ rnd.name }}</h1>
+    <h1>{{ rnd.name }}</h1>
     <div class="present-grid">
       {% for slot in grid %}
       <section class="slot-card {% if slot.ts.id in now_ids %}now-slot{% endif %}">
-        <div class="slot-head"><h2>{{ slot.ts.name }}</h2>
-          {% if slot.ts.id in now_ids %}<span class="badge">now</span>{% endif %}</div>
+        <header><h2>{{ slot.ts.name }}</h2>
+          {% if slot.ts.id in now_ids %}<span class="tag ok">Now</span>{% endif %}</header>
         <ul class="slot-rooms">
           {% for c in slot.cells %}
           <li><span class="where">{{ c.room_label }}</span><span class="what">{{ c.title }}</span></li>
-          {% else %}<li class="empty">— nothing scheduled —</li>{% endfor %}
+          {% else %}<li class="empty">Nothing is scheduled.</li>{% endfor %}
         </ul>
       </section>
       {% endfor %}

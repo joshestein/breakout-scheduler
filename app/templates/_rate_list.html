@@ -1,10 +1,10 @@
-<div id="rate-list" class="rate-list" hx-get="/app/rate-since" hx-trigger="every 6s"
+<div id="rate-list" class="rows" hx-get="/app/rate-since" hx-trigger="every 6s"
      hx-target="this" hx-swap="beforeend" hx-vals='js:{after: window.maxRatePid ? window.maxRatePid() : 0}'>
   {% set unrated = rows | rejectattr('rated') | list %}
   <div id="nudge" class="nudge">{% if unrated %}{{ unrated|length }} to rate{% endif %}</div>
   {% for r in rows %}
     {% include "_rate_row.html" %}
   {% else %}
-    <div class="empty">No proposals yet — propose the first one above.</div>
+    <div class="empty">No proposals yet. Propose the first session above.</div>
   {% endfor %}
 </div>

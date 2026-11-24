@@ -1,59 +1,50 @@
 {% extends "base.html" %}
-{% block title %}Enter — Breakout Scheduler{% endblock %}
+{% block title %}Join | Breakouts{% endblock %}
 {% block content %}
-<div class="landing">
+<div class="col">
   {% if join_event %}
-    <div class="lede">
-      <div class="lede-kicker">join</div>
-      <h1 class="lede-title">{{ join_event.name }}</h1>
+    <div>
+      <h1>{{ join_event.name }}</h1>
       {% if join_published %}
-      <p class="lede-sub">A schedule is live — enter your name to propose &amp; vote on sessions, or
-        <a href="/s/{{ prefill_code }}">just view the schedule →</a></p>
+      <p class="prose muted">A schedule is published. Enter your name to propose and rate sessions, or
+        <a href="/s/{{ prefill_code }}">view the schedule</a>.</p>
       {% else %}
-      <p class="lede-sub">Enter your name to propose &amp; vote on sessions.</p>
+      <p class="prose muted">Enter your name to propose and rate sessions.</p>
       {% endif %}
     </div>
-    <section class="card">
-      <form method="post" action="/enter" class="stack">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <label>Your name<input name="name" required autofocus placeholder="e.g. Sam"></label>
-        <input type="hidden" name="code" value="{{ prefill_code }}">
-        <button class="btn primary" type="submit">Enter</button>
-      </form>
-    </section>
+    <form method="post" action="/enter" class="form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label>Your name<input name="name" required autofocus placeholder="Sam"></label>
+      <input type="hidden" name="code" value="{{ prefill_code }}">
+      <button class="btn primary block" type="submit">Enter</button>
+    </form>
   {% else %}
-  {% if not me %}
-  <div class="lede">
-    <div class="lede-kicker">No. 1 · breakout sessions</div>
-    <h1 class="lede-title">Propose freely.<br>Attend what matters.</h1>
-    <p class="lede-sub">Pitch a topic, mark how keenly you'd join each one, and a schedule is set so the room runs the sessions people most want — and almost no one is left out.</p>
-  </div>
-  {% endif %}
   {% if me %}
-    <section class="card">
-      <h1>You're in as <b>{{ me.display_name }}</b></h1>
-      <p class="muted">Event: {{ event.name }}</p>
-      <div class="row">
-        <a class="btn primary" href="/app">Propose &amp; rate →</a>
-        <a class="btn" href="/published">See the schedule</a>
-        {% if session and session.is_admin %}<a class="btn" href="/admin">Organizer console</a>{% endif %}
-      </div>
-    </section>
+    <div>
+      <h1>You are in as {{ me.display_name }}</h1>
+      <p class="prose muted">Event: {{ event.name }}</p>
+    </div>
+    <div class="form">
+      <a class="btn primary block" href="/app">Propose and rate</a>
+      <a class="btn block" href="/published">See the schedule</a>
+      {% if session and session.is_admin %}<a class="btn block" href="/admin">Organizer console</a>{% endif %}
+    </div>
   {% else %}
-    <section class="card">
+    <div>
       <h1>Join a breakout</h1>
-      <form method="post" action="/enter" class="stack">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <label>Your name<input name="name" required autofocus placeholder="e.g. Sam"></label>
-        <label>Event code<input name="code" required placeholder="code from the organizer"></label>
-        <button class="btn primary" type="submit">Enter</button>
-      </form>
-    </section>
+      <p class="prose muted">Propose sessions and rate the sessions you want to attend.</p>
+    </div>
+    <form method="post" action="/enter" class="form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label>Your name<input name="name" required autofocus placeholder="Sam"></label>
+      <label>Event code<input name="code" required placeholder="From the organizer"></label>
+      <button class="btn primary block" type="submit">Enter</button>
+    </form>
   {% endif %}
 
-  <details class="card subtle">
+  <details class="box">
     <summary>Organizer: create a new event</summary>
-    <form method="post" action="/events" class="stack">
+    <form method="post" action="/events" class="form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <label>Event name<input name="name" required placeholder="Spring Retreat"></label>
       <div class="grid2">
@@ -61,13 +52,14 @@
         <label>Admin code<input name="admin_code" required></label>
       </div>
       <label>Your name<input name="admin_name" value="Organizer"></label>
-      <label>Rooms — one per line, “Name, capacity”
+      <label>Rooms
         <textarea name="rooms" rows="3" placeholder="Library, 12&#10;Den, 8&#10;Porch, 20"></textarea>
+        <span class="hint">One room on each line: name, number of seats.</span>
       </label>
       {% if bootstrap_required %}
-      <label>Bootstrap code<input name="bootstrap_code" required placeholder="required for the first event"></label>
+      <label>Bootstrap code<input name="bootstrap_code" required placeholder="Required for the first event"></label>
       {% endif %}
-      <button class="btn" type="submit">Create event</button>
+      <button class="btn block" type="submit">Create event</button>
     </form>
   </details>
   {% endif %}

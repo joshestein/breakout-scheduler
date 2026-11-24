@@ -1,44 +1,53 @@
-<div class="rate-row {% if r.is_runner %}is-runner{% endif %}" id="row-{{ r.p.id }}" data-pid="{{ r.p.id }}">
+<div class="rrow {% if r.is_runner %}is-host{% endif %}" id="row-{{ r.p.id }}" data-pid="{{ r.p.id }}">
   <div class="rr-main">
-    <div class="rr-title">{% if not r.mine %}{{ r.p.title }}{% else %}<span class="rr-name">{{ r.p.title }}</span>
-      <details class="mini inline mine-edit"><summary><span class="t-edit">edit</span><span class="t-cancel">cancel</span></summary>
-        <form hx-post="/propose-edit" hx-target="#rate-list" hx-swap="outerHTML" class="inline-edit">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <input type="hidden" name="proposal_id" value="{{ r.p.id }}">
-          <input name="title" value="{{ r.p.title }}" maxlength="200"><button class="lnk">save</button>
-        </form>
-        <form hx-post="/propose-delete" hx-target="#rate-list" hx-swap="outerHTML" hx-confirm="Delete your session “{{ r.p.title }}”?">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <input type="hidden" name="proposal_id" value="{{ r.p.id }}"><button class="lnk">delete</button>
-        </form>
-      </details>{% endif %}
-      {% if r.p.description %}<span class="rr-desc">{{ r.p.description }}</span>{% endif %}
-      {% if r.p.max_attendees %}<span class="cap-chip" title="the host caps this session at {{ r.p.max_attendees }} attendees">cap {{ r.p.max_attendees }}</span>{% endif %}
-      {% if r.p.min_interest_override %}<span class="cap-chip" title="only runs if at least {{ r.p.min_interest_override }} people besides the host come">needs {{ r.p.min_interest_override }}</span>{% endif %}
+    <h2 class="rr-title">{{ r.p.title }}</h2>
+    {% if r.p.description %}<p class="prose small muted">{{ r.p.description }}</p>{% endif %}
+    {% if r.p.max_attendees or r.p.min_interest_override or r.mine %}
+    <div class="rr-meta">
+      {% if r.p.max_attendees %}<span title="The host allows a maximum of {{ r.p.max_attendees }} people besides the host">Maximum {{ r.p.max_attendees }} people.</span>{% endif %}
+      {% if r.p.min_interest_override %}<span title="Runs only if at least {{ r.p.min_interest_override }} people besides the host come">Needs {{ r.p.min_interest_override }} people to run.</span>{% endif %}
+      {% if r.mine %}
+      <details class="act"><summary class="btn sm">Edit</summary>
+        <div class="editbox">
+          <form hx-post="/propose-edit" hx-target="#rate-list" hx-swap="outerHTML" class="inrow sm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="proposal_id" value="{{ r.p.id }}">
+            <input name="title" value="{{ r.p.title }}" maxlength="200" aria-label="Session title"><button class="btn sm">Save</button>
+          </form>
+          <div class="acts between">
+            <button type="button" class="btn sm" data-close>Cancel</button>
+            <form hx-post="/propose-delete" hx-target="#rate-list" hx-swap="outerHTML" hx-confirm="Delete your session “{{ r.p.title }}”?">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="proposal_id" value="{{ r.p.id }}"><button class="btn sm ghost danger">Delete session</button>
+            </form>
+          </div>
+        </div>
+      </details>
+      {% endif %}
     </div>
-    <div class="stars" role="radiogroup" aria-label="how much you want to attend">
-      {% set labels = {1:"won't go",2:"rather not",3:"maybe",4:"want",5:"must"} %}
+    {% endif %}
+    <div class="stars" role="radiogroup" aria-label="How much you want to attend">
+      {% set labels = {1:"Will not go",2:"Rather not",3:"Maybe",4:"Want to go",5:"Must go"} %}
       {% for n in [1,2,3,4,5] %}
       <form hx-post="/rate" hx-target="#row-{{ r.p.id }}" hx-swap="outerHTML" class="starform">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="proposal_id" value="{{ r.p.id }}">
         <input type="hidden" name="stars" value="{{ n }}">
         <button type="submit" class="star {% if r.stars >= n %}on{% endif %}"
-                title="{{ n }} — {{ labels[n] }}" aria-label="{{ n }}: {{ labels[n] }}">★</button>
+                title="{{ n }}: {{ labels[n] }}" aria-label="{{ n }}: {{ labels[n] }}">★</button>
       </form>
       {% endfor %}
-      {% if r.stars %}<span class="star-label">{{ labels[r.stars] }}</span>{% endif %}
+      <span class="star-label">{{ labels[r.stars] if r.stars else 'Not rated' }}</span>
     </div>
   </div>
   <div class="rr-side">
-    <span class="pill" title="people who'd attend (≥ maybe)">♥ {{ r.interested }}</span>
     <form hx-post="/runner-toggle" hx-target="#row-{{ r.p.id }}" hx-swap="outerHTML">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="proposal_id" value="{{ r.p.id }}">
       <input type="hidden" name="on" value="{{ 0 if r.is_runner else 1 }}">
-      <button type="submit" class="runner-toggle {% if r.is_runner %}on{% endif %}"
+      <button type="submit" class="btn sm {% if r.is_runner %}on{% endif %}"
               aria-pressed="{{ 'true' if r.is_runner else 'false' }}"
-              title="I'm running this (must be present)">{{ '🎤 running' if r.is_runner else 'run this' }}</button>
+              title="{{ 'You host this session. Click to stop.' if r.is_runner else 'Host this session. A host must attend it.' }}">{{ 'You host this' if r.is_runner else 'Host this' }}</button>
     </form>
   </div>
 </div>
