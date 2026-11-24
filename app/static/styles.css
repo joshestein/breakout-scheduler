@@ -129,8 +129,8 @@ main{display:block}
 /* rate list */
 .propose{position:sticky;top:0;z-index:5;display:grid;gap:8px;padding:8px 0;background:var(--bg)}
 .propose .inrow{gap:8px}
-.opts{display:grid;gap:10px;padding-top:4px}
-.opts .inline{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.opts{display:grid;gap:12px;padding:4px 0 12px}
+.opts .grid2+.hint{margin-top:-6px}
 .nudge{font-size:var(--sm);font-weight:600;color:var(--primary)}
 .nudge{padding-bottom:8px}
 .nudge:empty{display:none}
@@ -234,11 +234,6 @@ main{display:block}
 .main{padding:16px 20px;display:grid;gap:14px;align-content:start;min-width:0}
 .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .bar .tag{margin-left:auto}
-.popover{position:relative}
-.popover[open]>form{position:absolute;z-index:40;top:calc(100% + 6px);left:0;width:280px;display:grid;gap:8px;
-  padding:12px;background:var(--white);border:1px solid var(--line-strong);border-radius:var(--r2);box-shadow:0 8px 24px rgba(39,50,71,.15)}
-.popover>summary{list-style:none}
-.popover>summary::-webkit-details-marker{display:none}
 .setup{max-width:520px;margin:32px auto;padding:24px;display:grid;gap:10px;
   background:var(--white);border:1px solid var(--line);border-radius:var(--r2)}
 .setup h2{font-size:var(--lg);font-weight:600}
@@ -248,7 +243,7 @@ main{display:block}
 .setup .inrow label{width:5.5rem}
 
 .work{display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:20px;align-items:start}
-.matrix-wrap{overflow:auto;display:grid;gap:8px}
+.matrix-wrap{overflow:auto;display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
 .matrix{border-collapse:separate;border-spacing:0;width:100%;background:var(--white);
   border-top:1px solid var(--line);border-left:1px solid var(--line)}
 .matrix th,.matrix td{border-right:1px solid var(--line);border-bottom:1px solid var(--line);vertical-align:top;text-align:left;padding:8px 10px}
@@ -275,6 +270,14 @@ main{display:block}
 .cell.blank .place select{width:100%;max-width:none;height:44px;padding:0 26px 0 10px;border:1px dashed var(--line-strong);
   border-radius:var(--r);color:var(--muted);font-weight:600;background-position:right 10px center}
 .cell.blank .place select:hover{border-color:var(--primary);color:var(--primary)}
+/* "+ Add timeslot" under the grid: a dashed row, like an empty cell */
+details.addrow>summary{display:flex}
+details.addrow>summary.btn{width:100%;justify-content:flex-start;height:44px;padding:0 10px;
+  border:1px dashed var(--line-strong);background:transparent;box-shadow:none;color:var(--muted)}
+details.addrow>summary.btn:hover{border-color:var(--primary);color:var(--primary)}
+details.addrow{position:sticky;left:0}   /* stays in view when the grid scrolls sideways */
+details.addrow[open]{padding:8px 0}
+details.addrow form{max-width:440px}
 
 .sum{display:grid;gap:12px;align-content:start}
 .sum>div+div{border-top:1px solid var(--line);padding-top:10px}
