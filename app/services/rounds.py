@@ -22,6 +22,19 @@ def create_round(session: Session, *, event_id: int, name: str,
     return r
 
 
+def input_round(session: Session, event_id: int) -> Round | None:
+    """The latest round still collecting proposals and ratings. Never a published
+    round: a new proposal would not be on its grid."""
+    return session.scalar(select(Round).where(
+        Round.event_id == event_id, Round.status == "collecting").order_by(Round.id.desc()))
+
+
+def published_round(session: Session, event_id: int) -> Round | None:
+    """The latest published round: the one attendees see."""
+    return session.scalar(select(Round).where(
+        Round.event_id == event_id, Round.status == "published").order_by(Round.id.desc()))
+
+
 def add_timeslot(session: Session, *, round_id: int, name: str, position: int,
                  duration_minutes: int = 45) -> Timeslot:
     ts = Timeslot(round_id=round_id, name=name, position=position,
