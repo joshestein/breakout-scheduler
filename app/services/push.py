@@ -66,8 +66,8 @@ def notify_round(session_factory, settings, round_id: int, title: str, body: str
         rnd = s.get(Round, round_id)
         if rnd is None:
             return 0
-        part_ids = [p.id for p in s.scalars(
-            select(Participant.id).where(Participant.event_id == rnd.event_id))]
+        part_ids = list(s.scalars(
+            select(Participant.id).where(Participant.event_id == rnd.event_id)))
         if not part_ids:
             return 0
         subs = list(s.scalars(select(PushSubscription).where(
