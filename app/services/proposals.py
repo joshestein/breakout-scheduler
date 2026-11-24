@@ -3,17 +3,8 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Proposal, ProposalRunner, Round
-
-
-def current_round_id(session: Session, event_id: int) -> int | None:
-    """The round proposals are currently collected into: latest round still OPEN
-    for input (draft/collecting). Never a published round: a new proposal would
-    not be on its grid."""
-    r = session.scalar(select(Round).where(
-        Round.event_id == event_id, Round.status.in_(("draft", "collecting"))
-    ).order_by(Round.id.desc()))
-    return r.id if r else None
+from app.models import Proposal, ProposalRunner
+from app.services.rounds import input_round
 
 
 def propose(session: Session, *, event_id: int, title: str, created_by: int,
@@ -24,7 +15,8 @@ def propose(session: Session, *, event_id: int, title: str, created_by: int,
     if not title:
         raise ValueError("title required")
     if round_id is None:
-        round_id = current_round_id(session, event_id)
+        rnd = input_round(session, event_id)
+        round_id = rnd.id if rnd else None
     # normalise the optional host caps: positive ints only, and min <= max
     lo = min_interest_override if (min_interest_override or 0) > 0 else None
     hi = max_attendees if (max_attendees or 0) > 0 else None
@@ -41,7 +33,6 @@ def propose(session: Session, *, event_id: int, title: str, created_by: int,
         set_runner(session, p.id, created_by, True)
         session.flush()
     return p
-
 
 
 def edit_title(session: Session, proposal_id: int, title: str) -> None:

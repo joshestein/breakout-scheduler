@@ -62,13 +62,13 @@ def test_delete_timeslot_cascades(session):
     assert s.query(Placement).filter_by(timeslot_id=ts.id).count() == 0
 
 
-def test_current_round_id_excludes_published(session):
-    from app.services.proposals import current_round_id
+def test_input_round_excludes_published(session):
     s = session; e = _event(s)
     r1 = RD.create_round(s, event_id=e.id, name="R1")
-    assert current_round_id(s, e.id) == r1.id
+    assert RD.input_round(s, e.id) is r1
     r1.status = "published"; s.flush()
-    assert current_round_id(s, e.id) is None   # never targets a published round
+    assert RD.input_round(s, e.id) is None   # never targets a published round
+    assert RD.published_round(s, e.id) is r1
 
 
 # ---- ratings ---------------------------------------------------------------

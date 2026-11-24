@@ -8,11 +8,12 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
-from app.models import Event, Room, Participant, Proposal, Round
+from app.models import Event, Room, Participant, Proposal
 from app.deps import get_session, current_token, require_csrf, participant_cb, load_participant
 from app.auth import issue_token
 from app.ratelimit import client_ip
 from app.render import render
+from app.services import rounds as RD
 
 router = APIRouter()
 
@@ -26,16 +27,12 @@ def _set_cookie(resp, token: str, request: Request) -> None:
 def primary_dest(session: Session, event_id: int) -> str:
     """Where a participant should land by default: the schedule once one is
     published and the next round hasn't started collecting, else propose/rate."""
-    input_round = session.scalar(select(Round).where(
-        Round.event_id == event_id, Round.status.in_(("draft", "collecting"))
-    ).order_by(Round.id.desc()))
+    input_round = RD.input_round(session, event_id)
     collecting_started = input_round is not None and session.scalar(select(func.count(Proposal.id))
         .where(Proposal.round_id == input_round.id, Proposal.status == "active")) > 0
     if collecting_started:
         return "/app"                       # a new round is being proposed/voted
-    published = session.scalar(select(Round).where(
-        Round.event_id == event_id, Round.status == "published").order_by(Round.id.desc()))
-    if published is not None:
+    if RD.published_round(session, event_id) is not None:
         return "/published"                 # schedule is up / ongoing, between rounds
     return "/app"                            # first round: start proposing
 
@@ -43,7 +40,7 @@ def primary_dest(session: Session, event_id: int) -> str:
 @router.get("/")
 def landing(request: Request, session: Session = Depends(get_session)):
     tok = current_token(request)
-    me = session.get(Participant, tok.pid) if tok else None
+    me = load_participant(session, tok)
     event = session.get(Event, me.event_id) if me else None
     bootstrap_required = (request.app.state.settings.bootstrap_admin_code is not None
                           and not request.app.state.bootstrap_used
@@ -110,8 +107,7 @@ def join(request: Request, code: str, session: Session = Depends(get_session)):
         me = load_participant(session, tok)
         if me is not None and me.event_id == event.id:
             return RedirectResponse(primary_dest(session, event.id), status_code=303)
-    published = session.scalar(select(Round).where(
-        Round.event_id == event.id, Round.status == "published")) is not None
+    published = RD.published_round(session, event.id) is not None
     return render(request, "landing.html", me=None, event=None, bootstrap_required=False,
                   prefill_code=code, join_event=event, join_published=published)
 
