@@ -110,7 +110,8 @@ def build_and_solve(problem: Problem) -> Result:
             if guests:
                 m.add(sum(guests) <= c.max_attendees)
 
-    # uncovered[(u, slot)] >= 1 - sum_c attend
+    # uncovered[(u, slot)] == 1 - sum_c attend (equal, so it is also right in a
+    # solution that is not proven optimal)
     uncovered: dict[tuple[int, int], cp_model.IntVar] = {}
     for u in problem.present:
         for s in slots:
@@ -118,7 +119,7 @@ def build_and_solve(problem: Problem) -> Result:
             uncovered[(u, s.id)] = uv
             here = [attend[(u, c.id, s.id)] for c in problem.candidates
                     if (u, c.id, s.id) in attend]
-            m.add(uv >= 1 - sum(here)) if here else m.add(uv == 1)
+            m.add(uv == 1 - sum(here)) if here else m.add(uv == 1)
 
     # pins (validated): fix place==1 where the key exists, else report conflict
     pin_conflicts: list[tuple[int, int, int]] = []
