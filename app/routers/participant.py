@@ -92,17 +92,12 @@ def app_home(request: Request, token=Depends(require_participant),
 
 
 @router.get("/app/live")
-def live_check(k: str = "", page: str = "", token=Depends(require_participant),
+def live_check(k: str = "", token=Depends(require_participant),
                session: Session = Depends(get_session)):
-    """Polled by the Rate and Schedule pages with the key they were drawn with (`k`).
-    Sends the page on when the organizer publishes, unpublishes or archives. The
-    Schedule page (`page=schedule`) also reloads when its schedule changes."""
-    me, event = _me_event(session, token)
-    if page == "schedule":
-        current = schedule_key(session, event.id, _my_schedule(session, event, me)[1])
-    else:
-        current = live_key(session, event.id)
-    if k != current:
+    """Polled by the Rate page with the key it was drawn with (`k`).
+    Sends the page on when the organizer publishes, unpublishes or archives."""
+    _, event = _me_event(session, token)
+    if k != live_key(session, event.id):
         return _go_home(session, event)
     return Response(status_code=204)
 
@@ -323,6 +318,19 @@ def published(request: Request, token=Depends(require_participant),
     return render(request, "published.html", me=me, event=event, rnd=rnd, grid=grid,
                   schedule_md=RD.schedule_markdown(session, rnd.id) if rnd else "",
                   live_key=schedule_key(session, event.id, grid))
+
+
+@router.get("/published/live")
+def published_live_check(k: str = "", token=Depends(require_participant),
+                         session: Session = Depends(get_session)):
+    """Polled by the Schedule page with the key it was drawn with (`k`). Sends the
+    page on when its schedule changes, or the organizer publishes, unpublishes or
+    archives."""
+    me, event = _me_event(session, token)
+    _, grid = _my_schedule(session, event, me)
+    if k != schedule_key(session, event.id, grid):
+        return _go_home(session, event)
+    return Response(status_code=204)
 
 
 @router.get("/present/{code}")
