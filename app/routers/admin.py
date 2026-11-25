@@ -149,6 +149,7 @@ def _context(request: Request, session: Session, event: Event, rnd: Round | None
            "join_url": join_url, "schedule_url": schedule_url,
            "schedule_md": RD.schedule_markdown(session, rnd.id) if rnd else "",
            "waiting_for": RD.waiting_for(session, rnd) if rnd else None,
+           "live_round": RD.live_round(session, event.id),
            "timeslots": [], "placements": {}, "cells": {}, "unplaced": [],
            "all_rounds": list(session.scalars(
                select(Round).where(Round.event_id == event.id).order_by(Round.id.desc())))}
