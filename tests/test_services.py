@@ -69,6 +69,18 @@ def test_input_round_excludes_published(session):
     assert RD.published_round(s, e.id) is r1
 
 
+def test_input_round_opens_rounds_in_creation_order(session):
+    """Two rounds made ahead of time: proposals go to the first until it is published."""
+    s = session; e = _event(s)
+    r1 = RD.create_round(s, event_id=e.id, name="R1")
+    r2 = RD.create_round(s, event_id=e.id, name="R2")
+    assert RD.input_round(s, e.id) is r1
+    u = _p(s, e, "U")
+    assert P.propose(s, event_id=e.id, title="A", created_by=u.id).round_id == r1.id
+    RD.publish(s, r1.id)
+    assert RD.input_round(s, e.id) is r2
+
+
 # ---- ratings ---------------------------------------------------------------
 
 def test_set_rating_upserts(session):
@@ -139,11 +151,12 @@ def test_rounds_are_isolated_proposals_dont_carry(session):
     s = session; e = _event(s)
     r1 = RD.create_round(s, event_id=e.id, name="R1", min_interest=1)
     u = _p(s, e, "U"); v = _p(s, e, "V")
-    a = P.propose(s, event_id=e.id, title="A", created_by=u.id)   # auto -> r1 (latest)
+    a = P.propose(s, event_id=e.id, title="A", created_by=u.id)   # auto -> r1 (open)
     assert a.round_id == r1.id
     R.set_rating(s, participant_id=v.id, proposal_id=a.id, stars=5)
     r2 = RD.create_round(s, event_id=e.id, name="R2")
-    b = P.propose(s, event_id=e.id, title="B", created_by=u.id)   # now -> r2 (latest)
+    RD.publish(s, r1.id)
+    b = P.propose(s, event_id=e.id, title="B", created_by=u.id)   # now -> r2 (open)
     assert b.round_id == r2.id
     # A is a candidate in its own round, but does NOT leak into the new round
     assert any(c.id == a.id for c in build_problem(s, r1.id).candidates)
