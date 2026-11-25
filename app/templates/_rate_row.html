@@ -31,7 +31,7 @@
               title="{{ 'You host this session. Click to stop.' if r.is_runner else 'Host this session. A host must attend it.' }}"><span class="ico" aria-hidden="true">{{ '✓' if r.is_runner else '+' }}</span>{{ 'Hosting' if r.is_runner else 'Host this' }}</button>
     </form>
         {% if r.mine %}
-        <details class="act"><summary class="btn sm">Edit</summary>
+        <details class="act"><summary class="btn sm"><span class="ico" aria-hidden="true">✎</span>Edit</summary>
           {# edit in place: while this is open, CSS hides the rest of the row #}
           <div class="editbox">
             <form id="edit-{{ r.p.id }}" hx-post="/propose-edit" hx-target="#rate-list" hx-swap="outerHTML">
