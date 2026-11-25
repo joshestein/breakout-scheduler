@@ -205,12 +205,17 @@ def _own_editable(session: Session, me, event, proposal_id: int):
 
 @router.post("/propose-edit")
 def propose_edit(request: Request, proposal_id: int = Form(...), title: str = Form(...),
+                 description: str = Form(""),
+                 min_attendees: int | None = Form(None), max_attendees: int | None = Form(None),
                  token=Depends(require_participant), session: Session = Depends(get_session),
                  _: None = Depends(require_csrf)):
     me, event = _me_event(session, token)
     _, rnd = _own_editable(session, me, event, proposal_id)
     if title.strip():
         P.edit_title(session, proposal_id, title)
+    P.edit_description(session, proposal_id, description)
+    P.set_caps(session, proposal_id, min_interest_override=min_attendees,
+               max_attendees=max_attendees)
     return render(request, "_rate_list.html", me=me, rows=_rows(session, me, rnd.id))
 
 

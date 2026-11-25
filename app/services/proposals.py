@@ -7,6 +7,15 @@ from app.models import Proposal, ProposalRunner
 from app.services.rounds import input_round
 
 
+def _caps(lo: int | None, hi: int | None) -> tuple[int | None, int | None]:
+    """Normalise the optional host caps: positive ints only, and min <= max."""
+    lo = lo if (lo or 0) > 0 else None
+    hi = hi if (hi or 0) > 0 else None
+    if lo is not None and hi is not None and lo > hi:
+        lo = hi   # an impossible floor above the cap is clamped, not rejected
+    return lo, hi
+
+
 def propose(session: Session, *, event_id: int, title: str, created_by: int,
             description: str | None = None, runner: bool = True,
             round_id: int | None = None, min_interest_override: int | None = None,
@@ -17,11 +26,7 @@ def propose(session: Session, *, event_id: int, title: str, created_by: int,
     if round_id is None:
         rnd = input_round(session, event_id)
         round_id = rnd.id if rnd else None
-    # normalise the optional host caps: positive ints only, and min <= max
-    lo = min_interest_override if (min_interest_override or 0) > 0 else None
-    hi = max_attendees if (max_attendees or 0) > 0 else None
-    if lo is not None and hi is not None and lo > hi:
-        lo = hi   # an impossible floor above the cap is clamped, not rejected
+    lo, hi = _caps(min_interest_override, max_attendees)
     p = Proposal(event_id=event_id, round_id=round_id, title=title,
                  description=(description or None), created_by=created_by, status="active",
                  min_interest_override=lo, max_attendees=hi)
@@ -40,6 +45,20 @@ def edit_title(session: Session, proposal_id: int, title: str) -> None:
     if not t:
         raise ValueError("title required")
     session.get(Proposal, proposal_id).title = t[:300]
+    session.flush()
+
+
+def edit_description(session: Session, proposal_id: int, description: str) -> None:
+    """Set the description. A blank description clears it."""
+    session.get(Proposal, proposal_id).description = description.strip()[:1000] or None
+    session.flush()
+
+
+def set_caps(session: Session, proposal_id: int, *, min_interest_override: int | None,
+             max_attendees: int | None) -> None:
+    """Set the host caps. A blank (None) cap clears it."""
+    p = session.get(Proposal, proposal_id)
+    p.min_interest_override, p.max_attendees = _caps(min_interest_override, max_attendees)
     session.flush()
 
 

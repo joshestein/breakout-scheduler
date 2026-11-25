@@ -144,6 +144,7 @@ main{display:block}
 .rrow:has(details.act[open]){display:block}
 .rrow:has(details.act[open]) :is(.rr-title,.rr-main>.prose,.rr-meta>span,.stars,.rr-side){display:none}
 .editbox{display:grid;gap:8px}
+.editbox>form{display:grid;gap:8px}
 .titlein{height:var(--ctl);font-size:var(--md);font-weight:700;color:var(--text)}
 .editfoot{display:flex;gap:6px;align-items:center}
 /* the ghost button at the row end: its text, not its padding, lines up with the edge */

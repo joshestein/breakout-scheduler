@@ -467,6 +467,27 @@ def test_propose_with_host_caps(app):
     with sf() as s:
         p = s.scalar(select(Proposal).where(Proposal.title == "Plain"))
         assert p.min_interest_override is None and p.max_attendees is None
+    # the proposer edits the caps; the same clamp applies, and blank clears
+    with sf() as s:
+        wid = s.scalar(select(Proposal).where(Proposal.title == "Workshop")).id
+    _post(c1, "/propose-edit", csrf, {"proposal_id": wid, "title": "Workshop",
+                                      "min_attendees": "9", "max_attendees": "6"})
+    with sf() as s:
+        p = s.get(Proposal, wid)
+        assert p.min_interest_override == 6 and p.max_attendees == 6
+    _post(c1, "/propose-edit", csrf, {"proposal_id": wid, "title": "Workshop",
+                                      "min_attendees": "", "max_attendees": ""})
+    with sf() as s:
+        p = s.get(Proposal, wid)
+        assert p.min_interest_override is None and p.max_attendees is None
+    # the proposer edits the description; blank clears it
+    _post(c1, "/propose-edit", csrf, {"proposal_id": wid, "title": "Workshop",
+                                      "description": "  Bring a laptop.  "})
+    with sf() as s:
+        assert s.get(Proposal, wid).description == "Bring a laptop."
+    _post(c1, "/propose-edit", csrf, {"proposal_id": wid, "title": "Workshop", "description": " "})
+    with sf() as s:
+        assert s.get(Proposal, wid).description is None
 
 
 def test_stale_cb_cookie_rejected_over_http(app):
