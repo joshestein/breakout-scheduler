@@ -241,19 +241,23 @@ def build_published_grid(session: Session, event: Event, rnd: Round,
         for pl in session.scalars(select(Placement).where(
                 Placement.timeslot_id.in_(list(ts_by_id)))):
             by_ts.setdefault(pl.timeslot_id, []).append(pl)
+    interest: dict[int, int] = {}
+    if mine is None and by_ts:
+        placed = {pl.proposal_id for pls in by_ts.values() for pl in pls}
+        interest = dict(session.execute(
+            select(Rating.proposal_id, func.count(Rating.id))
+            .where(Rating.proposal_id.in_(placed), Rating.stars >= INTERESTED_STARS)
+            .group_by(Rating.proposal_id)).all())
     grid = []
     for ts in sorted(ts_by_id.values(), key=lambda t: t.position):
         cells = []
         for pl in sorted(by_ts.get(ts.id, []), key=lambda pl: pl.room_id):
             pid, rid = pl.proposal_id, pl.room_id
-            interested = 0 if mine is not None else session.scalar(
-                select(func.count(Rating.id)).where(
-                    Rating.proposal_id == pid, Rating.stars >= INTERESTED_STARS)) or 0
             room = rooms.get(rid)
             label = room.name if room else "?"
             cells.append({"key": pid, "title": props[pid].title if pid in props else "?",
                           "room_id": rid,
-                          "room_label": label, "interested": interested,
+                          "room_label": label, "interested": interest.get(pid, 0),
                           "cap": props[pid].max_attendees if pid in props else None})
         if mine is not None:
             highlight = mine.get(ts.id)
