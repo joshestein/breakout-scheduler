@@ -59,7 +59,7 @@ def _rows(session: Session, me: Participant, round_id: int | None) -> list[dict]
             "is_runner": p.id in my_runner,
             "hosts": hosts.get(p.id, []),
             "interested": interested,   # shown regardless of rater count
-            "rated": p.id in my_ratings,
+            "rated": p.id in my_ratings or p.id in my_runner,   # hosts do not rate
             "mine": p.created_by == me.id,   # proposer can edit/delete their own
         })
     rows.sort(key=lambda r: r["p"].id)   # stable creation order (no reorder on refresh)

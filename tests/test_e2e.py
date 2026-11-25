@@ -443,6 +443,23 @@ def test_schedule_markdown_export(app):
     assert md.index("- Den") < md.index("- Lib")   # sorted by room name
 
 
+def test_hosts_do_not_rate_their_sessions(app):
+    csrf = _csrf(TestClient(app))
+    admin = TestClient(app)
+    _post(admin, "/events", csrf, {"name": "R", "participant_code": "p", "admin_code": "a",
+                                   "admin_name": "Org", "rooms": "Lib, 10"})
+    _post(admin, "/admin/round", csrf, {"name": "R1"})
+    sam = TestClient(app); _post(sam, "/enter", csrf, {"code": "p", "name": "Sam"})
+    pat = TestClient(app); _post(pat, "/enter", csrf, {"code": "p", "name": "Pat"})
+    _post(sam, "/propose", csrf, {"title": "Mine"})
+    # Sam hosts it: no stars, and it is not in Sam's "to rate" count
+    html = sam.get("/app/rate-list?v=stale").text
+    assert 'role="radiogroup"' not in html and "to rate" not in html
+    # Pat does not host it: Pat rates it
+    html = pat.get("/app/rate-list?v=stale").text
+    assert 'role="radiogroup"' in html and "1 to rate" in html
+
+
 def test_propose_with_host_caps(app):
     csrf = _csrf(TestClient(app))
     admin = TestClient(app)

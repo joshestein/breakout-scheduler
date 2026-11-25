@@ -7,6 +7,8 @@
       {% if r.p.max_attendees %}<span title="The host allows a maximum of {{ r.p.max_attendees }} people besides the host">Maximum {{ r.p.max_attendees }} people.</span>{% endif %}
       {% if r.p.min_interest_override %}<span title="Runs only if at least {{ r.p.min_interest_override }} people besides the host come">Needs {{ r.p.min_interest_override }} people to run.</span>{% endif %}
     </div>
+    {# a host must attend and their rating does not count, so they do not rate #}
+    {% if not r.is_runner %}
     <div class="stars" role="radiogroup" aria-label="How much you want to attend">
       {% set labels = {1:"Will not go",2:"Rather not",3:"Maybe",4:"Want to go",5:"Must go"} %}
       {% for n in [1,2,3,4,5] %}
@@ -20,6 +22,7 @@
       {% endfor %}
       <span class="star-label">{{ labels[r.stars] if r.stars else 'Not rated' }}</span>
     </div>
+    {% endif %}
   </div>
   <div class="rr-side">
     <form hx-post="/runner-toggle" hx-target="#row-{{ r.p.id }}" hx-swap="outerHTML">
