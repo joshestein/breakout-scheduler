@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Request, Depends, Form, HTTPException, Response
@@ -125,7 +126,8 @@ def _row_response(request: Request, session: Session, me: Participant, event: Ev
     if row is None:   # the row is not in the open round: the page is out of date
         return _go_home(session, event)
     unrated_count = sum(1 for r in rows if not r["rated"])
-    return render(request, "_rate_row_oob.html", me=me, r=row, unrated_count=unrated_count)
+    return render(request, "_rate_row_oob.html", me=me, r=row, rows=rows,
+                  unrated_count=unrated_count)
 
 
 def _in_open_round(session: Session, event: Event, proposal_id: int) -> bool:
@@ -161,17 +163,27 @@ def runner_toggle(request: Request, proposal_id: int = Form(...), on: int = Form
     return _row_response(request, session, me, event, proposal_id)
 
 
-@router.get("/app/rate-since")
-def rate_since(request: Request, after: int = 0, token=Depends(require_participant),
-               session: Session = Depends(get_session)):
-    """Append-only feed of sessions proposed after `after` (id) — the rate page polls
-    this and appends, so existing rows never move (no scroll jumps / misclicks)."""
+def rows_version(rows: list[dict]) -> str:
+    """A short hash of everything a rate row shows. The rate page polls with the
+    version it was drawn with, and gets a new list only when this changes."""
+    shown = [(r["p"].id, r["p"].title, r["p"].description, r["p"].max_attendees,
+              r["p"].min_interest_override, r["stars"], r["is_runner"], tuple(r["hosts"]),
+              r["mine"]) for r in rows]
+    return hashlib.sha1(repr(shown).encode()).hexdigest()[:16]
+
+
+@router.get("/app/rate-list")
+def rate_list(request: Request, v: str = "", token=Depends(require_participant),
+              session: Session = Depends(get_session)):
+    """Polled by the rate page with the version it was drawn with (`v`). 204 when
+    nothing changed, so rows do not move under a finger; else the whole list, so new,
+    renamed, removed and newly hosted sessions all show."""
     me, event = _me_event(session, token)
     rnd = RD.input_round(session, event.id)
     rows = _rows(session, me, rnd.id) if rnd else []
-    new = [r for r in rows if r["p"].id > after]
-    unrated_count = sum(1 for r in rows if not r["rated"])
-    return render(request, "_rate_since.html", me=me, rows=new, unrated_count=unrated_count)
+    if v == rows_version(rows):
+        return Response(status_code=204)
+    return render(request, "_rate_list.html", me=me, rows=rows)
 
 
 def _own_editable(session: Session, me, event, proposal_id: int):

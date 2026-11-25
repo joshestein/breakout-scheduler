@@ -1,3 +1,5 @@
 {% include "_rate_row.html" %}
 {# out-of-band update of the "N to rate" nudge so it stays live as you rate #}
 <div id="nudge" class="nudge" hx-swap-oob="true">{% if unrated_count %}{{ unrated_count }} to rate{% endif %}</div>
+{# the list version now includes this change, so the next poll does not resend the list #}
+<input type="hidden" id="rate-v" name="v" value="{{ rows | rows_version }}" hx-swap-oob="true">

@@ -143,6 +143,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # offset so the browser doesn't misparse the countdown as local time.
         return as_utc(dt).isoformat() if dt else ""
     templates.env.filters["utciso"] = _utciso
+    from app.routers.participant import rows_version
+    templates.env.filters["rows_version"] = rows_version
     app.state.templates = templates
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

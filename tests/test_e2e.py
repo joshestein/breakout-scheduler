@@ -384,9 +384,8 @@ def test_dedup_by_role_and_own_proposal_edit(app):
     r = pat.post("/propose-edit", data={"proposal_id": pid, "title": "hijack"},
                  headers={"X-CSRFToken": csrf}, follow_redirects=False)
     assert r.status_code == 403
-    # append-only auto-pull endpoint works and never re-sends already-shown rows
-    assert pat.get("/app/rate-since?after=0").status_code == 200
-    assert "Mine v2" not in pat.get("/app/rate-since?after=%d" % pid).text
+    # the rate list poll sends the list when the version is stale
+    assert "Mine v2" in pat.get("/app/rate-list?v=stale").text
     # admin can rename any proposal
     rid = app_round_id(sf)
     assert _post(admin, "/admin/proposal-edit", csrf,
@@ -483,20 +482,54 @@ def test_stale_cb_cookie_rejected_over_http(app):
     assert r.status_code == 303 and r.headers["location"] == "/"
 
 
-def test_rate_since_returns_only_newer(app):
+def test_rate_list_poll_sends_changes_only(app):
     csrf = _csrf(TestClient(app)); admin = TestClient(app)
     _post(admin, "/events", csrf, {"name": "R", "participant_code": "p", "admin_code": "a",
                                    "admin_name": "Org", "rooms": "Lib, 10"})
     _post(admin, "/admin/round", csrf, {"name": "R1"})
     sf = app.state.session_factory
-    c1 = TestClient(app); _post(c1, "/enter", csrf, {"code": "p", "name": "Sam"})
-    for t in ("First", "Second", "Third"):
-        _post(c1, "/propose", csrf, {"title": t})
+    rid = app_round_id(sf)
+    sam = TestClient(app); _post(sam, "/enter", csrf, {"code": "p", "name": "Sam"})
+    pat = TestClient(app); _post(pat, "/enter", csrf, {"code": "p", "name": "Pat"})
+    version = re.compile(r'id="rate-v" name="v" value="(\w+)"')
+
+    def poll(v):
+        return pat.get("/app/rate-list", params={"v": v})
+
+    page = pat.get("/app").text
+    assert "No proposals yet" in page
+    v = version.search(page).group(1)
+    assert poll(v).status_code == 204                    # nothing changed: no swap
+
+    # a first proposal replaces the empty state
+    _post(sam, "/propose", csrf, {"title": "First"})
+    r = poll(v)
+    assert r.status_code == 200 and "First" in r.text and "No proposals yet" not in r.text
+    v = version.search(r.text).group(1)
+    assert poll(v).status_code == 204
+
     with sf() as s:
-        ids = {p.title: p.id for p in s.scalars(select(Proposal))}
-    body = c1.get("/app/rate-since?after=%d" % ids["Second"]).text
-    assert "Third" in body                       # strictly newer rows are appended
-    assert "First" not in body and "Second" not in body   # already-shown rows never resent
+        pid = s.scalar(select(Proposal).where(Proposal.title == "First")).id
+    # another person also hosts it: the poll shows the host
+    kim = TestClient(app); _post(kim, "/enter", csrf, {"code": "p", "name": "Kim"})
+    _post(kim, "/runner-toggle", csrf, {"proposal_id": pid, "on": 1})
+    r = poll(v)
+    assert "Kim" in r.text
+    v = version.search(r.text).group(1)
+    # a rename shows
+    _post(admin, "/admin/proposal-edit", csrf, {"round_id": rid, "proposal_id": pid,
+                                                "title": "First v2"})
+    r = poll(v)
+    assert "First v2" in r.text
+    v = version.search(r.text).group(1)
+    # my own rating returns the new version out of band, so the next poll is a 204
+    r = _post(pat, "/rate", csrf, {"proposal_id": pid, "stars": 4})
+    assert 'hx-swap-oob="true"' in r.text
+    assert poll(version.search(r.text).group(1)).status_code == 204
+    # a removal shows, and the empty state comes back
+    _post(admin, "/admin/remove", csrf, {"round_id": rid, "proposal_id": pid})
+    r = poll(v)
+    assert "First v2" not in r.text and "No proposals yet" in r.text
 
 
 def test_cross_round_placement_rejected_same_event(app):

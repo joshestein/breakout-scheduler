@@ -42,16 +42,6 @@
     });
   }
 
-  // highest proposal id currently shown — the rate list polls for anything newer
-  window.maxRatePid = function () {
-    var max = 0;
-    document.querySelectorAll("#rate-list [data-pid]").forEach(function (el) {
-      var v = parseInt(el.getAttribute("data-pid"), 10);
-      if (v > max) max = v;
-    });
-    return max;
-  };
-
   function urlB64ToUint8Array(b64) {
     var pad = "=".repeat((4 - (b64.length % 4)) % 4);
     var s = (b64 + pad).replace(/-/g, "+").replace(/_/g, "/");

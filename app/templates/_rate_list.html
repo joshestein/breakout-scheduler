@@ -1,5 +1,10 @@
-<div id="rate-list" class="rows" hx-get="/app/rate-since" hx-trigger="every 6s"
-     hx-target="this" hx-swap="beforeend" hx-vals='js:{after: window.maxRatePid ? window.maxRatePid() : 0}'>
+{# Polls with the version it was drawn with (#rate-v; row actions update it out of
+   band). The server replies 204 (no swap) until something a row shows changes, so
+   rows do not move under a finger. No poll while an Edit panel is open. #}
+<div id="rate-list" class="rows" hx-get="/app/rate-list" hx-include="#rate-v"
+     hx-trigger="every 6s [!document.querySelector('#rate-list details[open]')]"
+     hx-target="this" hx-swap="outerHTML">
+  <input type="hidden" id="rate-v" name="v" value="{{ rows | rows_version }}">
   {% set unrated = rows | rejectattr('rated') | list %}
   <div id="nudge" class="nudge">{% if unrated %}{{ unrated|length }} to rate{% endif %}</div>
   {% for r in rows %}
