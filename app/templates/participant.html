@@ -4,7 +4,7 @@
 {% block content %}
 <div class="col">
   {# moves this page on when the organizer publishes, unpublishes or archives #}
-  <div hx-get="/app/live?k={{ live_key|urlencode }}" hx-trigger="every 6s" hx-swap="none"></div>
+  <div hx-get="/app/live?k={{ live_key|urlencode }}" hx-trigger="every 6s [pageVisible()], visibilitychange[pageVisible()] from:document" hx-swap="none"></div>
   {% if collecting %}
     <div>
       <h1>{{ collecting.name }}</h1>

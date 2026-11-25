@@ -4,6 +4,10 @@
 (function () {
   "use strict";
 
+  // Poll filter for hx-trigger: skip polls while the tab is hidden. Each poll also
+  // fires on visibilitychange, so a phone that wakes up gets fresh data at once.
+  window.pageVisible = function () { return document.visibilityState === "visible"; };
+
   function fmt(ms) {
     if (ms <= 0) return "0:00";
     const s = Math.floor(ms / 1000);

@@ -202,8 +202,10 @@
         {% else %}<span class="tag">Collecting ratings</span>{% endif %}
       </div>
 
-      {# refresh every 5s, but not while the admin is using a control in the grid #}
-      <div id="grid-wrap" hx-get="/admin/grid?round_id={{ rnd.id }}" hx-trigger="every 5s [!this.contains(document.activeElement)]"
+      {# refresh every 5s and on return to the tab, but not while the admin is using a control in the grid #}
+      <div id="grid-wrap" hx-get="/admin/grid?round_id={{ rnd.id }}"
+           hx-trigger="every 5s [pageVisible() && !this.contains(document.activeElement)],
+                       visibilitychange[pageVisible() && !this.contains(document.activeElement)] from:document"
            hx-target="this" hx-swap="innerHTML">
         {% include "_admin_grid.html" %}
       </div>

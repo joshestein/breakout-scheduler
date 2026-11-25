@@ -2,7 +2,8 @@
    band). The server replies 204 (no swap) until something a row shows changes, so
    rows do not move under a finger. No poll while an Edit panel is open. #}
 <div id="rate-list" class="rows" hx-get="/app/rate-list" hx-include="#rate-v"
-     hx-trigger="every 6s [!document.querySelector('#rate-list details[open]')]"
+     hx-trigger="every 6s [pageVisible() && !document.querySelector('#rate-list details[open]')],
+                 visibilitychange[pageVisible() && !document.querySelector('#rate-list details[open]')] from:document"
      hx-target="this" hx-swap="outerHTML">
   <input type="hidden" id="rate-v" name="v" value="{{ rows | rows_version }}">
   {% set unrated = rows | rejectattr('rated') | list %}
