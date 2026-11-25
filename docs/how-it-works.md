@@ -23,7 +23,10 @@ can merge or add a session before publishing. It's a general-purpose tool.
 
 A single instance hosts **many events**, each with its own codes, rooms, and rounds.
 Within an event the proposal pool churns round to round: each round has its own
-proposals and ratings.
+proposals and ratings. Rounds open one at a time in creation order: participants
+propose and rate for the oldest unpublished round, and the next round opens when that
+one is published or archived. So an organizer can create back-to-back rounds ahead of
+time. A participant's open Rate page reloads by itself when the open round changes.
 
 ## Participants
 
@@ -40,9 +43,11 @@ Then they:
   "would attend". New proposals from others stream in without disturbing what they're
   looking at.
 - Toggle **"I'm running this"**, which commits them to be present at that session (the
-  solver won't double-book a runner).
-- See a **personal mobile schedule** once published, with a "→ go here" pick per
-  timeslot, and opt into **web-push alerts** that fire shortly before a session ends
+  solver won't double-book a runner). A proposer runs their session by default and can
+  opt out while voting. A session with no runner never runs.
+- See a **personal mobile schedule** once published, marked "→ your seat" per timeslot:
+  the session the solver seated them in (saved, so it does not change between page
+  loads). If the solver found no seat for them in a slot, the page says so. Opt into **web-push alerts** that fire shortly before a session ends
   (with a live countdown once a timeslot's clock is started). On iOS, web push only
   works from a home-screen PWA, so the app shows install instructions there.
 
@@ -60,15 +65,20 @@ Organizers enter the admin code and get a dense console:
   a filled cell it swaps; a session already on the grid moves); **remove** a session,
   which takes it off the grid and out of the round until you **restore** it from the pool.
   Hand-placed sessions are pinned.
-- The **pool** shows, for every session, where it runs or why it does not: below its
-  minimum, its host is busy in every slot, or not picked.
+- The **pool** shows, for every session, where it runs or why it does not: no host,
+  below its minimum, its host is busy in every slot, or not picked.
 - A **side panel** that counts people for the current grid: per slot, "N of M have a
   session", with the left-out people split into "nothing they want runs" and "sessions
   they want were full"; how many got one of their top-rated sessions; who rated every
   session ★1–2; and who has not rated yet.
-- **Publish**, which shows the round to attendees. They see the live grid, so edits after
-  publishing show at once. Regenerating a published schedule double-confirms, and
-  **protects sessions whose clock has already started** by default.
+- **Publish**, which shows the round to attendees and saves where each person is seated.
+  They see the live grid, so edits after publishing show at once, and each edit
+  (Generate, place, remove, room or timeslot change) saves the seats again. Regenerating a published schedule double-confirms, and
+  **protects sessions whose clock has already started** by default. A round that waits
+  behind an earlier round cannot be published until that round is published or archived.
+- **Archive** a round to hide it from participants and attendees. An archived round no
+  longer blocks the rounds after it. **Restore** undoes this. You cannot archive a round
+  while one of its sessions is in progress.
 - **Copy as Markdown** (paste the schedule into Slack/Discord), a **projector view**, and
   **QR codes** for the join link.
 - A **Start clock** per timeslot that drives participant countdowns and the pre-end alert.
@@ -85,7 +95,7 @@ the database by a pure function (`app/solver_input.py`). Its goals, in strict or
 3. On an exact tie, prefer the earlier proposal.
 
 It is one weighted sum: each goal is scaled past the full range of the goals below it,
-so a lower goal can never outweigh a higher one. Generate stops after 4 s with the best
+so a lower goal can never outweigh a higher one. Generate stops after 15 s with the best
 schedule found so far, using 8 parallel workers. On a big retreat that schedule may not
 be the proven best, and two clicks on the same data can give different grids.
 
@@ -102,13 +112,18 @@ subject to:
   set their own. N is lowered to the host's max attendees and to the biggest room, so a
   small workshop can still run. Pinned sessions skip this rule, so a hand edit never
   makes the model unsolvable.
+- **Runner required**: a session with no runner is not a candidate. Pinned sessions skip
+  this rule.
 - **Runner presence**: a session's runner can't be in two places at once, and is seated in
   their own session when it runs.
 - Each session runs **at most once**, in one room and one timeslot.
 
 The grid the organizer sees is *scored* (not re-solved) on a content-addressed cache, so
 the console doesn't re-run the solver unless something actually changed. The full re-solve
-only happens when you click **Generate**.
+only happens when you click **Generate**. Scoring keeps the grid fixed and only seats
+people. There the minimum is a soft goal with top priority: the scorer fills each session
+up to its minimum first, but a grid that cannot meet it still gets counts. The seats saved
+for attendees come from this same scored result, so the console and attendees agree.
 
 ## Configuration (environment variables)
 
