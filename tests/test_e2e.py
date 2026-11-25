@@ -7,6 +7,8 @@ from sqlalchemy import select
 from app.webapp import create_app
 from app.config import Settings
 from app.models import Event, Room, Round, Timeslot, Proposal, Placement, Rating
+from app.services import rounds as RD
+from app.types import Result
 
 
 @pytest.fixture
@@ -288,8 +290,14 @@ def test_room_timeslot_edit_delete_routes(app):
         assert s.get(_R, rooms[1]) is None
         assert s.scalar(select(Room).where(Room.id == rooms[0])).capacity == 20
 
-    # delete the timeslot last
-    assert _post(admin, "/admin/timeslot-delete", csrf, {"round_id": rid, "timeslot_id": ts}).status_code == 200
+    # a new timeslot after a delete goes last, with no shared position
+    _post(admin, "/admin/timeslot", csrf, {"round_id": rid, "name": "15:00"})
+    _post(admin, "/admin/timeslot-delete", csrf, {"round_id": rid, "timeslot_id": ts})
+    _post(admin, "/admin/timeslot", csrf, {"round_id": rid, "name": "16:00"})
+    with sf() as s:
+        slots = s.scalars(select(Timeslot).order_by(Timeslot.position)).all()
+        assert [t.name for t in slots] == ["15:00", "16:00"]
+        assert len({t.position for t in slots}) == 2
 
 
 def test_add_room_and_event_level_edit_render_console(app):
@@ -820,7 +828,7 @@ def test_removed_session_fans_still_counted(app):
     assert "Not rated <span>1</span>" in html and "Kim" in html
 
 
-def test_published_view_shows_the_solver_seat_not_the_top_star(app):
+def test_published_view_shows_the_solver_seat_not_the_top_star(app, monkeypatch):
     # Kim and Lee both rate Alpha above Beta, but Beta needs a guest to run (its host
     # Bob wants nothing else), so the solver seats one of them in Beta. That person
     # must be sent to Beta, not to their top-rated Alpha.
@@ -856,8 +864,17 @@ def test_published_view_shows_the_solver_seat_not_the_top_star(app):
     assert sorted(seat(g) for g in guests) == ["Alpha", "Beta"]
     assert seat(ann) == "Alpha" and seat(bob) == "Beta"
 
-    # an edit after publishing updates the seats at once
+    # a solver timeout keeps the old seats
+    timed_out = Result(status="UNKNOWN", placements=[], total_interest=0, n_present=0,
+                       coverage_pct={}, left_out={}, forced_uncovered={})
+    real_evaluate = RD.evaluate_current
+    monkeypatch.setattr(RD, "evaluate_current", lambda *a: timed_out)
     _post(admin, "/admin/remove", csrf, {"round_id": rid, "proposal_id": pid("Beta")})
+    assert seat(ann) == "Alpha"
+    monkeypatch.setattr(RD, "evaluate_current", real_evaluate)
+
+    # the next edit (here, round settings) solves again and updates the seats at once
+    _post(admin, "/admin/round-settings", csrf, {"round_id": rid, "min_interest": 2})
     assert seat(bob) is None
     assert "No seat was picked for you here" in bob.get("/published").text
 
@@ -991,6 +1008,9 @@ def test_back_to_back_rounds_run_one_at_a_time_and_stale_pages_move_on(app):
     assert r.headers.get("HX-Redirect") == "/published"
     with sf() as s:   # the vote did not change the published round
         assert s.scalar(select(Rating).where(Rating.proposal_id == first.id)) is None
+    # a proposal from the stale page also moves on, and is not lost without a sign
+    r = _post(sam, "/propose", csrf, {"title": "Late"})
+    assert r.headers.get("HX-Redirect") == "/published"
 
     # during R1, participants see nothing of R2
     page = sam.get("/app").text
@@ -1018,6 +1038,8 @@ def test_archive_and_restore_routes(app):
     sam = TestClient(app); _post(sam, "/enter", csrf, {"code": "p", "name": "Sam"})
     assert "<h1>R2</h1>" in sam.get("/app").text          # R1 no longer blocks R2
     assert "Archived (1)" in admin.get("/admin").text
+    # restore of R1 takes R2 offline, so the admin must confirm it
+    assert "stop seeing “R2”" in admin.get(f"/admin?round_id={r1}").text
     _post(admin, "/admin/round-restore", csrf, {"round_id": r1})
     assert "<h1>R1</h1>" in sam.get("/app").text          # restore makes R1 live again
 
