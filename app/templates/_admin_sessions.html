@@ -1,0 +1,48 @@
+{# Left-rail session list. Rendered in the console and, out of band, on the grid poll. #}
+<div id="sessions-list" data-oob-guard{% if oob %} hx-swap-oob="true"{% endif %}>
+      <div class="items">
+      {% for x in pool %}
+      <div class="item">
+        <b class="pi-name">{{ x.p.title }}</b>
+        <span class="xs muted">{{ ('Host: ' ~ (x.hosts | join(', '))) if x.hosts else 'No host yet' }}.
+          <span title="People besides the hosts who rated it ★3 or more">{{ x.interested }} interested.</span>
+          {{ x.n_raters }} rated{% if x.n_raters %}, average {{ x.avg }}{% endif %}.</span>
+        <span class="tags">
+          {% if x.where %}<span class="tag ok">{{ x.where | replace(' · ', ', ') }}</span>
+          {% else %}<span class="tag">Not placed: {{ x.why }}</span>{% endif %}
+          {% if x.p.max_attendees %}<span class="tag" title="The host allows a maximum of {{ x.p.max_attendees }} people besides the hosts">Maximum {{ x.p.max_attendees }}</span>{% endif %}
+          {% if x.p.min_interest_override is not none %}<span class="tag" title="The host set a minimum{% if x.floor != x.p.min_interest_override %}. It is lowered to fit the host's maximum or the largest room{% endif %}">Minimum {{ x.floor }}</span>
+          {% elif x.floor != rnd.min_interest %}<span class="tag" title="The round minimum ({{ rnd.min_interest }}) is lowered to fit the host's maximum or the largest room">Minimum {{ x.floor }}</span>{% endif %}
+        </span>
+        <div class="acts tools">
+          <details class="act"><summary class="btn tool">Rename</summary>
+            <form method="post" action="/admin/proposal-edit" hx-post="/admin/proposal-edit" hx-target="#console-main" hx-swap="outerHTML" class="inrow sm">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}">
+              <input type="hidden" name="proposal_id" value="{{ x.p.id }}">
+              <input name="title" value="{{ x.p.title }}" maxlength="300" aria-label="Session title"><button class="btn sm">Save</button><button type="button" class="btn sm ghost" data-close>Cancel</button>
+            </form>
+          </details>
+          <form method="post" action="/admin/remove" hx-post="/admin/remove" hx-target="#console-main" hx-swap="outerHTML" hx-confirm="Remove “{{ x.p.title }}” from this round? Generate does not place it until you restore it.">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}">
+            <input type="hidden" name="proposal_id" value="{{ x.p.id }}"><button class="btn tool danger">Remove</button>
+          </form>
+        </div>
+      </div>
+      {% else %}<div class="hint">No sessions yet.</div>{% endfor %}
+      </div>
+      {% if removed %}
+      <details class="more" data-keep="removed"><summary>Removed ({{ removed|length }})</summary>
+        <div class="items">
+        {% for x in removed %}
+        <div class="item row">
+          <span class="pi-name muted">{{ x.p.title }}</span>
+          <form method="post" action="/admin/restore" hx-post="/admin/restore" hx-target="#console-main" hx-swap="outerHTML">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}">
+            <input type="hidden" name="proposal_id" value="{{ x.p.id }}"><button class="btn tool">Restore</button>
+          </form>
+        </div>
+        {% endfor %}
+        </div>
+      </details>
+      {% endif %}
+</div>

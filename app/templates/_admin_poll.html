@@ -1,0 +1,4 @@
+{# Response to the console's 5s poll: the grid, plus the left-rail session list out of band. #}
+{% include "_admin_grid.html" %}
+<span id="pool-count" hx-swap-oob="true">{{ pool|length }}</span>
+{% with oob = true %}{% include "_admin_sessions.html" %}{% endwith %}
