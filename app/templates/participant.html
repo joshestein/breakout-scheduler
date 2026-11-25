@@ -4,14 +4,15 @@
 {% block content %}
 {# X-Round: the round this page shows. The server reloads the page when it changes. #}
 <div class="col" hx-headers='{"X-Round": "{{ collecting.id if collecting else 0 }}"}'>
+  {% if published %}
+    <div class="note ok"><b>{{ published.name }}</b> is published. <a href="/published">Go to your session</a></div>
+  {% endif %}
   {% if collecting %}
     <div>
       <h1>{{ collecting.name }}</h1>
       <p class="prose muted">Rating is open. Propose sessions and rate the sessions you want to attend.</p>
     </div>
-  {% elif published %}
-    <div class="note ok"><b>{{ published.name }}</b> is published. <a href="/published">Go to your session</a></div>
-  {% else %}
+  {% elif not published %}
     <div class="note">Waiting for the organizer to open a round.</div>
   {% endif %}
 
