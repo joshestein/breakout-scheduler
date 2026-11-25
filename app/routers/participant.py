@@ -15,6 +15,7 @@ from app.scoping import owned_proposal
 from app.services import proposals as P
 from app.services import ratings as RT
 from app.services import rounds as RD
+from app.routers.events import primary_dest
 
 router = APIRouter()
 
@@ -64,16 +65,17 @@ def _rows(session: Session, me: Participant, round_id: int | None) -> list[dict]
     return rows
 
 
-def _page_is_stale(request: Request, rnd: Round | None) -> bool:
-    """True if the Rate page sent a round (X-Round header) that is no longer the open
-    round: the organizer published or archived it since the page loaded."""
-    sent = request.headers.get("X-Round")
-    return sent is not None and sent != str(rnd.id if rnd else 0)
+def live_key(session: Session, event_id: int) -> str:
+    """The live round and its status, for example "4:published". A page polls with the
+    key it was drawn with, so the server can tell when the page is out of date."""
+    rnd = RD.live_round(session, event_id)
+    return f"{rnd.id}:{rnd.status}" if rnd else "none"
 
 
-def _reload() -> Response:
-    """Tell htmx to reload the whole page, so it shows the round that is open now."""
-    return Response(status_code=200, headers={"HX-Refresh": "true"})
+def _go_home(session: Session, event: Event) -> Response:
+    """Tell htmx to load the page for the live round: the seat once it is published,
+    else propose and rate."""
+    return Response(status_code=200, headers={"HX-Redirect": primary_dest(session, event.id)})
 
 
 @router.get("/app")
@@ -83,8 +85,20 @@ def app_home(request: Request, token=Depends(require_participant),
     published = RD.published_round(session, event.id)
     collecting = RD.input_round(session, event.id)
     rows = _rows(session, me, collecting.id) if collecting else []
-    return render(request, "participant.html", me=me, event=event,
-                  rows=rows, published=published, collecting=collecting)
+    return render(request, "participant.html", me=me, event=event, rows=rows,
+                  published=published, collecting=collecting,
+                  live_key=live_key(session, event.id))
+
+
+@router.get("/app/live")
+def live_check(k: str = "", token=Depends(require_participant),
+               session: Session = Depends(get_session)):
+    """Polled by the Rate and Schedule pages with the key they were drawn with (`k`).
+    Sends the page on when the organizer publishes, unpublishes or archives."""
+    _, event = _me_event(session, token)
+    if k != live_key(session, event.id):
+        return _go_home(session, event)
+    return Response(status_code=204)
 
 
 @router.post("/propose")
@@ -98,8 +112,6 @@ def propose(request: Request, title: str = Form(...), description: str = Form(""
         P.propose(session, event_id=event.id, title=title, created_by=me.id,
                   description=description or None, round_id=rnd.id,
                   min_interest_override=min_attendees, max_attendees=max_attendees)
-    if _page_is_stale(request, rnd):
-        return _reload()   # the proposal went to the open round: show that round
     rows = _rows(session, me, rnd.id) if rnd else []
     return render(request, "_rate_list.html", me=me, rows=rows)
 
@@ -111,7 +123,7 @@ def _row_response(request: Request, session: Session, me: Participant, event: Ev
     rows = _rows(session, me, rnd.id if rnd else None)
     row = next((r for r in rows if r["p"].id == proposal_id), None)
     if row is None:   # the row is not in the open round: the page is out of date
-        return _reload()
+        return _go_home(session, event)
     unrated_count = sum(1 for r in rows if not r["rated"])
     return render(request, "_rate_row_oob.html", me=me, r=row, unrated_count=unrated_count)
 
@@ -130,7 +142,7 @@ def rate(request: Request, proposal_id: int = Form(...), stars: int = Form(...),
     me, event = _me_event(session, token)
     owned_proposal(session, proposal_id, event.id)
     if not _in_open_round(session, event, proposal_id):
-        return _reload()
+        return _go_home(session, event)
     RT.set_rating(session, participant_id=me.id, proposal_id=proposal_id, stars=stars)
     return _row_response(request, session, me, event, proposal_id)
 
@@ -142,7 +154,7 @@ def runner_toggle(request: Request, proposal_id: int = Form(...), on: int = Form
     me, event = _me_event(session, token)
     owned_proposal(session, proposal_id, event.id)
     if not _in_open_round(session, event, proposal_id):
-        return _reload()
+        return _go_home(session, event)
     P.set_runner(session, proposal_id, me.id, bool(on))
     if on:  # running implies max interest
         RT.set_rating(session, participant_id=me.id, proposal_id=proposal_id, stars=5)
@@ -156,8 +168,6 @@ def rate_since(request: Request, after: int = 0, token=Depends(require_participa
     this and appends, so existing rows never move (no scroll jumps / misclicks)."""
     me, event = _me_event(session, token)
     rnd = RD.input_round(session, event.id)
-    if _page_is_stale(request, rnd):
-        return _reload()
     rows = _rows(session, me, rnd.id) if rnd else []
     new = [r for r in rows if r["p"].id > after]
     unrated_count = sum(1 for r in rows if not r["rated"])
@@ -239,11 +249,13 @@ def published(request: Request, token=Depends(require_participant),
               session: Session = Depends(get_session)):
     me, event = _me_event(session, token)
     rnd = RD.published_round(session, event.id)
+    key = live_key(session, event.id)
     if rnd is None:
-        return render(request, "published.html", me=me, event=event, rnd=None, grid=[])
+        return render(request, "published.html", me=me, event=event, rnd=None, grid=[],
+                      live_key=key)
     grid = build_published_grid(session, event, rnd, RD.assignments_of(session, rnd.id, me.id))
     return render(request, "published.html", me=me, event=event, rnd=rnd, grid=grid,
-                  schedule_md=RD.schedule_markdown(session, rnd.id))
+                  schedule_md=RD.schedule_markdown(session, rnd.id), live_key=key)
 
 
 @router.get("/present/{code}")
