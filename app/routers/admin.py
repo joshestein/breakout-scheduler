@@ -38,8 +38,9 @@ def _event_of(session: Session, token) -> Event:
 def _current_round(session: Session, event_id: int, round_id: int | None) -> Round | None:
     if round_id:
         return owned_round(session, round_id, event_id)
-    return session.scalar(select(Round).where(
-        Round.event_id == event_id).order_by(Round.id.desc()))
+    # default to the round participants propose into; else the newest live round
+    return RD.input_round(session, event_id) or session.scalar(select(Round).where(
+        Round.event_id == event_id).order_by(Round.archived_at.is_not(None), Round.id.desc()))
 
 
 def _eval_fingerprint(session: Session, rnd: Round) -> tuple:
@@ -86,7 +87,8 @@ def _sync_assignments(request: Request, session: Session, event: Event) -> None:
     put them. Call after each change to a published grid. It uses the same cached
     result as the console, so the console's counts match what attendees see."""
     for rnd in session.scalars(select(Round).where(
-            Round.event_id == event.id, Round.status == "published")):
+            Round.event_id == event.id, Round.status == "published",
+            Round.archived_at.is_(None))):
         RD.save_assignments(session, rnd.id, _evaluate(request, session, rnd))
 
 
@@ -144,6 +146,7 @@ def _context(request: Request, session: Session, event: Event, rnd: Round | None
     ctx = {"event": event, "rnd": rnd, "rooms": rooms, "pool": [], "removed": [],
            "join_url": join_url, "schedule_url": schedule_url,
            "schedule_md": RD.schedule_markdown(session, rnd.id) if rnd else "",
+           "waiting_for": RD.waiting_for(session, rnd) if rnd else None,
            "timeslots": [], "placements": {}, "cells": {}, "unplaced": [],
            "all_rounds": list(session.scalars(
                select(Round).where(Round.event_id == event.id).order_by(Round.id.desc())))}
@@ -514,6 +517,25 @@ def unpublish(request: Request, round_id: int = Form(...), token=Depends(require
     event = _event_of(session, token)
     owned_round(session, round_id, event.id)
     RD.unpublish(session, round_id)
+    return _respond(request, session, event, round_id)
+
+
+@router.post("/round-archive")
+def round_archive(request: Request, round_id: int = Form(...), token=Depends(require_admin),
+                  session: Session = Depends(get_session), _: None = Depends(require_csrf)):
+    event = _event_of(session, token)
+    owned_round(session, round_id, event.id)
+    RD.archive(session, round_id)
+    return _respond(request, session, event, round_id)
+
+
+@router.post("/round-restore")
+def round_restore(request: Request, round_id: int = Form(...), token=Depends(require_admin),
+                  session: Session = Depends(get_session), _: None = Depends(require_csrf)):
+    event = _event_of(session, token)
+    owned_round(session, round_id, event.id)
+    RD.restore(session, round_id)
+    _sync_assignments(request, session, event)
     return _respond(request, session, event, round_id)
 
 
