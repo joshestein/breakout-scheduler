@@ -700,7 +700,7 @@ def test_schedule_pages_reload_when_schedule_changes(app):
     _post(admin, "/admin/publish", csrf, {"round_id": rid})
 
     def keys():
-        mine = re.search(r'hx-get="/app/live\?k=([^"&]+)&amp;page=schedule"',
+        mine = re.search(r'hx-get="/published/live\?k=([^"]+)"',
                          sam.get("/published").text).group(1)
         public = re.search(r'hx-get="/s/p/live\?k=([^"]+)"', TestClient(app).get("/s/p").text).group(1)
         present = TestClient(app).get("/present/p").text
@@ -708,14 +708,14 @@ def test_schedule_pages_reload_when_schedule_changes(app):
         return mine, public
 
     def my_poll(k):
-        return sam.get(f"/app/live?k={k}&page=schedule")
+        return sam.get(f"/published/live?k={k}")
 
     def public_poll(k):
         return TestClient(app).get(f"/s/p/live?k={k}")
 
     mine, public = keys()
     assert my_poll(mine).status_code == 204 and public_poll(public).status_code == 204
-    # the Rate page key alone is still quiet: only the schedule page checks the grid
+    # the Rate page poll is still quiet: only the schedule page checks the grid
     assert sam.get(f"/app/live?k={rid}:published").status_code == 204
 
     # the organizer starts the clock after publish: every schedule page reloads
