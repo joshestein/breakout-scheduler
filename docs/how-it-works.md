@@ -23,10 +23,12 @@ can merge or add a session before publishing. It's a general-purpose tool.
 
 A single instance hosts **many events**, each with its own codes, rooms, and rounds.
 Within an event the proposal pool churns round to round: each round has its own
-proposals and ratings. Rounds open one at a time in creation order: participants
-propose and rate for the oldest unpublished round, and the next round opens when that
-one is published or archived. So an organizer can create back-to-back rounds ahead of
-time. A participant's open Rate page reloads by itself when the open round changes.
+proposals and ratings. Rounds run one at a time in creation order. The **live round**
+is the oldest round that is not archived, and participants see only that round: while
+it collects, they propose and rate; once it is published, they see their seat. The next
+round goes live when the organizer archives the live one. So an organizer can create
+back-to-back rounds ahead of time, and participants see nothing of round 2 during
+round 1. Open participant pages move on by themselves when the live round changes.
 
 ## Participants
 
@@ -74,11 +76,10 @@ Organizers enter the admin code and get a dense console:
 - **Publish**, which shows the round to attendees and saves where each person is seated.
   They see the live grid, so edits after publishing show at once, and each edit
   (Generate, place, remove, room or timeslot change) saves the seats again. Regenerating a published schedule double-confirms, and
-  **protects sessions whose clock has already started** by default. A round that waits
-  behind an earlier round cannot be published until that round is published or archived.
-- **Archive** a round to hide it from participants and attendees. An archived round no
-  longer blocks the rounds after it. **Restore** undoes this. You cannot archive a round
-  while one of its sessions is in progress.
+  **protects sessions whose clock has already started** by default. Only the live round
+  can be published.
+- **Archive** ends the live round: participants and attendees stop seeing it, and the
+  next round goes live. Archive also drops a round made by mistake. **Restore** undoes it.
 - **Copy as Markdown** (paste the schedule into Slack/Discord), a **projector view**, and
   **QR codes** for the join link.
 - A **Start clock** per timeslot that drives participant countdowns and the pre-end alert.
