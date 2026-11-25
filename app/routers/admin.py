@@ -245,8 +245,10 @@ def _context(request: Request, session: Session, event: Event, rnd: Round | None
 
 
 def _respond(request: Request, session: Session, event: Event, round_id: int):
-    """Return the console partial for htmx (no page reload), else a redirect."""
+    """Save the seating of published rounds, then return the console partial for
+    htmx (no page reload), else a redirect."""
     rnd = owned_round(session, round_id, event.id)
+    _sync_assignments(request, session, event)
     if request.headers.get("HX-Request"):
         ctx = _context(request, session, event, rnd)
         return render(request, "_console.html", **ctx)
@@ -257,6 +259,7 @@ def _respond_or_console(request: Request, session: Session, event: Event, round_
     """Like _respond but tolerates no round (event-level edits like rooms)."""
     if round_id:
         return _respond(request, session, event, round_id)
+    _sync_assignments(request, session, event)
     rnd = _current_round(session, event.id, None)
     if request.headers.get("HX-Request"):
         ctx = _context(request, session, event, rnd)
@@ -313,7 +316,6 @@ def room_edit(request: Request, room_id: int = Form(...), name: str = Form(...),
     event = _event_of(session, token)
     owned_room(session, room_id, event.id)
     RD.edit_room(session, room_id, name=name, capacity=capacity)
-    _sync_assignments(request, session, event)
     return _respond_or_console(request, session, event, round_id)
 
 
@@ -324,7 +326,6 @@ def room_delete(request: Request, room_id: int = Form(...), round_id: int = Form
     event = _event_of(session, token)
     owned_room(session, room_id, event.id)
     RD.delete_room(session, room_id)
-    _sync_assignments(request, session, event)
     return _respond_or_console(request, session, event, round_id)
 
 
@@ -348,7 +349,6 @@ def timeslot_delete(request: Request, round_id: int = Form(...), timeslot_id: in
     owned_round(session, round_id, event.id)
     owned_timeslot(session, timeslot_id, event.id)
     RD.delete_timeslot(session, timeslot_id)
-    _sync_assignments(request, session, event)
     return _respond(request, session, event, round_id)
 
 
@@ -433,7 +433,6 @@ def solve(request: Request, round_id: int = Form(...), pin_started: int = Form(1
         RD.apply_result(session, round_id, result)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
-    _sync_assignments(request, session, event)
     return _respond(request, session, event, round_id)
 
 
@@ -465,7 +464,6 @@ def force_place(request: Request, round_id: int = Form(...), timeslot_id: int = 
         RD.place(session, timeslot_id=timeslot_id, room_id=room_id, proposal_id=proposal_id)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
-    _sync_assignments(request, session, event)
     return _respond(request, session, event, round_id)
 
 
@@ -487,7 +485,6 @@ def remove(request: Request, round_id: int = Form(...), proposal_id: int = Form(
     event = _event_of(session, token)
     owned_proposal(session, proposal_id, event.id)
     RD.remove_session(session, proposal_id)
-    _sync_assignments(request, session, event)
     return _respond(request, session, event, round_id)
 
 
@@ -509,7 +506,6 @@ def publish(request: Request, round_id: int = Form(...), token=Depends(require_a
     event = _event_of(session, token)
     owned_round(session, round_id, event.id)
     RD.publish(session, round_id)
-    _sync_assignments(request, session, event)
     return _respond(request, session, event, round_id)
 
 
@@ -539,7 +535,6 @@ def round_restore(request: Request, round_id: int = Form(...), token=Depends(req
     event = _event_of(session, token)
     owned_round(session, round_id, event.id)
     RD.restore(session, round_id)
-    _sync_assignments(request, session, event)
     return _respond(request, session, event, round_id)
 
 
