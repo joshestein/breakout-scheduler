@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from sqlalchemy import select, delete
 from sqlalchemy.orm import Session
 
 from app.models import (Assignment, Round, Timeslot, Placement, Room, Proposal,
-                        ProposalRunner, Participant, as_utc)
+                        ProposalRunner, Participant)
 from app.types import Result
 from app.solver_input import build_problem
 from app.solver import build_and_solve
@@ -22,29 +22,32 @@ def create_round(session: Session, *, event_id: int, name: str,
     return r
 
 
-def input_round(session: Session, event_id: int) -> Round | None:
-    """The oldest round still collecting proposals and ratings. Rounds open one at a
-    time in creation order: a later round opens when the one before it is published
-    or archived. Never a published round: a new proposal would not be on its grid."""
+def live_round(session: Session, event_id: int) -> Round | None:
+    """The one round participants see: the oldest round that is not archived. Rounds
+    run one at a time in creation order. Archiving the live round makes the next one
+    live, and participants do not see that next round before then."""
     return session.scalar(select(Round).where(
-        Round.event_id == event_id, Round.status == "collecting",
-        Round.archived_at.is_(None)).order_by(Round.id.asc()))
+        Round.event_id == event_id, Round.status != "archived").order_by(Round.id.asc()))
+
+
+def input_round(session: Session, event_id: int) -> Round | None:
+    """The live round, if it still collects proposals and ratings."""
+    rnd = live_round(session, event_id)
+    return rnd if rnd is not None and rnd.status == "collecting" else None
 
 
 def published_round(session: Session, event_id: int) -> Round | None:
-    """The latest published round that is not archived: the one attendees see."""
-    return session.scalar(select(Round).where(
-        Round.event_id == event_id, Round.status == "published",
-        Round.archived_at.is_(None)).order_by(Round.id.desc()))
+    """The live round, if it is published: the schedule attendees see."""
+    rnd = live_round(session, event_id)
+    return rnd if rnd is not None and rnd.status == "published" else None
 
 
 def waiting_for(session: Session, rnd: Round) -> Round | None:
-    """The open round that `rnd` waits behind, if `rnd` is a collecting round that is
-    not open yet. None for the open round, published rounds and archived rounds."""
-    if rnd.status != "collecting" or rnd.archived_at is not None:
+    """The live round that `rnd` waits behind. None if `rnd` is live or archived."""
+    if rnd.status == "archived":
         return None
-    open_rnd = input_round(session, rnd.event_id)
-    return open_rnd if open_rnd is not None and open_rnd.id != rnd.id else None
+    live = live_round(session, rnd.event_id)
+    return live if live is not None and live.id != rnd.id else None
 
 
 def add_timeslot(session: Session, *, round_id: int, name: str, position: int,
@@ -270,14 +273,13 @@ def publish(session: Session, round_id: int) -> None:
     """Show the round to attendees. They see the live grid, so later edits are
     visible at once.
 
-    Raises ValueError for an archived round, or a round that waits behind an
-    earlier one: rounds go out in order."""
+    Raises ValueError for any round but the live one: rounds run in order."""
     rnd = session.get(Round, round_id)
-    if rnd.archived_at is not None:
+    if rnd.status == "archived":
         raise ValueError("Restore this round before you publish it.")
     before = waiting_for(session, rnd)
     if before is not None:
-        raise ValueError(f"Publish or archive “{before.name}” first.")
+        raise ValueError(f"Archive “{before.name}” first.")
     rnd.status = "published"
     rnd.published_at = datetime.now(timezone.utc)
     session.flush()
@@ -291,7 +293,9 @@ def any_clock_started(session: Session, round_id: int) -> bool:
 def unpublish(session: Session, round_id: int) -> None:
     if any_clock_started(session, round_id):
         raise ValueError("cannot unpublish after a timeslot clock has started")
-    session.get(Round, round_id).status = "collecting"
+    rnd = session.get(Round, round_id)
+    rnd.status = "collecting"
+    rnd.published_at = None   # so a later restore brings it back as collecting
     session.flush()
 
 
@@ -300,26 +304,15 @@ def start_timeslot(session: Session, timeslot_id: int) -> None:
     session.flush()
 
 
-def clock_running(session: Session, round_id: int) -> bool:
-    """True while a timeslot of the round has started and not yet run its minutes."""
-    now = datetime.now(timezone.utc)
-    return any(
-        t.started_at is not None
-        and as_utc(t.started_at) + timedelta(minutes=t.duration_minutes or 0) > now
-        for t in session.scalars(select(Timeslot).where(Timeslot.round_id == round_id)))
-
-
 def archive(session: Session, round_id: int) -> None:
-    """Hide the round from participants and attendees. A collecting round stops
-    blocking the rounds after it. Restore undoes this.
-
-    Raises ValueError while a session of the round is in progress."""
-    if clock_running(session, round_id):
-        raise ValueError("A session of this round is in progress. Archive it after the session ends.")
-    session.get(Round, round_id).archived_at = datetime.now(timezone.utc)
+    """End the round: participants and attendees stop seeing it, and the next round
+    goes live. Restore undoes this."""
+    session.get(Round, round_id).status = "archived"
     session.flush()
 
 
 def restore(session: Session, round_id: int) -> None:
-    session.get(Round, round_id).archived_at = None
+    """Undo archive: back to published if the round was published, else collecting."""
+    rnd = session.get(Round, round_id)
+    rnd.status = "published" if rnd.published_at is not None else "collecting"
     session.flush()
