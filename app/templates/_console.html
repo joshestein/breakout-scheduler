@@ -1,3 +1,4 @@
+{% from "_macros.html" import poll_trigger %}
 {% macro archive_button(rnd) %}
   {% if rnd.status == 'archived' %}
     <form method="post" action="/admin/round-restore" hx-post="/admin/round-restore"{% if live_round and live_round.id > rnd.id %} hx-confirm="Restore “{{ rnd.name }}”? It becomes the live round again. Participants and attendees stop seeing “{{ live_round.name }}” until you archive “{{ rnd.name }}” again."{% endif %}><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><button class="btn">Restore</button></form>
@@ -204,8 +205,7 @@
 
       {# refresh every 5s and on return to the tab, but not while the admin is using a control in the grid #}
       <div id="grid-wrap" hx-get="/admin/grid?round_id={{ rnd.id }}"
-           hx-trigger="every 5s [pageVisible() && !this.contains(document.activeElement)],
-                       visibilitychange[pageVisible() && !this.contains(document.activeElement)] from:document"
+           {{ poll_trigger(5, "!this.contains(document.activeElement)") }}
            hx-target="this" hx-swap="innerHTML">
         {% include "_admin_grid.html" %}
       </div>

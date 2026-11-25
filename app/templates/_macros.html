@@ -1,0 +1,6 @@
+{# hx-trigger for a poller: every `secs` seconds and on return to the tab, only while
+   the tab is visible and `guard` (a JS expression) is true. #}
+{% macro poll_trigger(secs, guard="") -%}
+{%- set cond = "pageVisible()" ~ (" && " ~ guard if guard else "") -%}
+hx-trigger="every {{ secs }}s [{{ cond }}], visibilitychange[{{ cond }}] from:document"
+{%- endmacro %}

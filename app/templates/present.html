@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import poll_trigger %}
 {% block title %}Schedule: {{ event.name }}{% endblock %}
 {% block page %}present{% endblock %}
 {% block content %}
@@ -24,5 +25,5 @@
 </div>
 {# reloads when the schedule or the running slot changes. It asks the server first, so a
    network failure does not leave the projector on an error page. #}
-<div hx-get="/s/{{ event.participant_code|urlencode }}/live?k={{ live_key|urlencode }}" hx-trigger="every 15s [pageVisible()], visibilitychange[pageVisible()] from:document" hx-swap="none"></div>
+<div hx-get="/s/{{ event.participant_code|urlencode }}/live?k={{ live_key|urlencode }}" {{ poll_trigger(15) }} hx-swap="none"></div>
 {% endblock %}

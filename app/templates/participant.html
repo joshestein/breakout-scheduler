@@ -1,10 +1,11 @@
 {% extends "base.html" %}
+{% from "_macros.html" import poll_trigger %}
 {% block title %}Rate: {{ event.name }}{% endblock %}
 {% block page %}participant{% endblock %}
 {% block content %}
 <div class="col">
   {# moves this page on when the organizer publishes, unpublishes or archives #}
-  <div hx-get="/app/live?k={{ live_key|urlencode }}" hx-trigger="every 6s [pageVisible()], visibilitychange[pageVisible()] from:document" hx-swap="none"></div>
+  <div hx-get="/app/live?k={{ live_key|urlencode }}" {{ poll_trigger(6) }} hx-swap="none"></div>
   {% if collecting %}
     <div>
       <h1>{{ collecting.name }}</h1>

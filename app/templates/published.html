@@ -1,12 +1,13 @@
 {% extends "base.html" %}
+{% from "_macros.html" import poll_trigger %}
 {% block title %}Schedule: {{ event.name }}{% endblock %}
 {% block page %}published{% endblock %}
 {% block content %}
 <div class="col">
   {# reloads or moves this page on when the organizer changes the schedule, publishes,
      unpublishes or archives #}
-  {% if public %}<div hx-get="/s/{{ join_code|urlencode }}/live?k={{ live_key|urlencode }}" hx-trigger="every 15s [pageVisible()], visibilitychange[pageVisible()] from:document" hx-swap="none"></div>
-  {% else %}<div hx-get="/app/live?k={{ live_key|urlencode }}&amp;page=schedule" hx-trigger="every 10s [pageVisible()], visibilitychange[pageVisible()] from:document" hx-swap="none"></div>{% endif %}
+  {% set poll_url = "/s/" ~ join_code|urlencode ~ "/live" if public else "/published/live" %}
+  <div hx-get="{{ poll_url }}?k={{ live_key|urlencode }}" {{ poll_trigger(15 if public else 10) }} hx-swap="none"></div>
   {% if public %}
     <div class="note"><b>{{ event.name }}</b>. <a href="/j/{{ join_code }}">Enter your name to propose and rate sessions</a></div>
   {% endif %}
