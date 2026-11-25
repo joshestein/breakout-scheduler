@@ -959,6 +959,11 @@ def test_archive_and_restore_routes(app):
     csrf = _csrf(TestClient(app)); admin = TestClient(app)
     sf, r1, _, _ = _two_room_round(app, csrf, admin)
     _post(admin, "/admin/round", csrf, {"name": "R2", "min_interest": 1})
+    # the button is in the bar, and also on a round with no timeslot yet
+    for rid in (r1, app_round_id(sf)):   # R1 has a timeslot, R2 (newest) has none
+        page = admin.get(f"/admin?round_id={rid}").text
+        form = re.search(r'<form[^>]*action="/admin/round-archive".*?</form>', page, re.S).group(0)
+        assert f'value="{csrf}"' in form and f'value="{rid}"' in form
     _post(admin, "/admin/round-archive", csrf, {"round_id": r1})
     sam = TestClient(app); _post(sam, "/enter", csrf, {"code": "p", "name": "Sam"})
     assert "<h1>R2</h1>" in sam.get("/app").text          # R1 no longer blocks R2
