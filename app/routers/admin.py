@@ -38,9 +38,9 @@ def _event_of(session: Session, token) -> Event:
 def _current_round(session: Session, event_id: int, round_id: int | None) -> Round | None:
     if round_id:
         return owned_round(session, round_id, event_id)
-    # default to the round participants propose into; else the newest live round
-    return RD.input_round(session, event_id) or session.scalar(select(Round).where(
-        Round.event_id == event_id).order_by(Round.archived_at.is_not(None), Round.id.desc()))
+    # default to the round participants see; else the newest round
+    return RD.live_round(session, event_id) or session.scalar(select(Round).where(
+        Round.event_id == event_id).order_by(Round.id.desc()))
 
 
 def _eval_fingerprint(session: Session, rnd: Round) -> tuple:
@@ -87,8 +87,7 @@ def _sync_assignments(request: Request, session: Session, event: Event) -> None:
     put them. Call after each change to a published grid. It uses the same cached
     result as the console, so the console's counts match what attendees see."""
     for rnd in session.scalars(select(Round).where(
-            Round.event_id == event.id, Round.status == "published",
-            Round.archived_at.is_(None))):
+            Round.event_id == event.id, Round.status == "published")):
         RD.save_assignments(session, rnd.id, _evaluate(request, session, rnd))
 
 
