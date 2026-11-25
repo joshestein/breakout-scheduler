@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from app.webapp import create_app
 from app.config import Settings
-from app.models import Event, Room, Round, Timeslot, Proposal, Placement
+from app.models import Event, Room, Round, Timeslot, Proposal, Placement, Rating
 
 
 @pytest.fixture
@@ -917,4 +917,52 @@ def test_bootstrap_code_gates_first_event(tmp_path):
     # a failed create must not use up the bootstrap code
     assert _post(c, "/events", csrf, ev).status_code == 403
     assert _post(c, "/events", csrf, {**ev, "bootstrap_code": "boot"}).url.path == "/admin"
+
+
+def test_back_to_back_rounds_open_in_order_and_stale_rate_page_reloads(app):
+    csrf = _csrf(TestClient(app)); admin = TestClient(app)
+    sf, r1, _, _ = _two_room_round(app, csrf, admin)
+    _post(admin, "/admin/round", csrf, {"name": "R2", "min_interest": 1})
+    with sf() as s:
+        r2 = s.scalar(select(Round).where(Round.name == "R2")).id
+    _post(admin, "/admin/timeslot", csrf, {"round_id": r2, "name": "15:00", "duration_minutes": "45"})
+
+    # the console opens on R1. R2 waits and cannot be published first
+    assert "Waiting for R1" in admin.get("/admin").text
+    assert _post(admin, "/admin/publish", csrf, {"round_id": r2}).status_code == 400
+    assert 'title="Publish or archive “R1” first"' in admin.get(f"/admin?round_id={r2}").text
+
+    sam = TestClient(app); _post(sam, "/enter", csrf, {"code": "p", "name": "Sam"})
+    _post(sam, "/propose", csrf, {"title": "First"})
+    with sf() as s:
+        first = s.scalar(select(Proposal).where(Proposal.title == "First"))
+        assert first.round_id == r1
+    stale = {"X-CSRFToken": csrf, "X-Round": str(r1)}
+    assert "HX-Refresh" not in sam.get("/app/rate-since", headers=stale).headers
+
+    _post(admin, "/admin/publish", csrf, {"round_id": r1})
+
+    # Sam's open page still shows R1: the poll and a vote both reload it
+    assert sam.get("/app/rate-since", headers=stale).headers.get("HX-Refresh") == "true"
+    r = sam.post("/rate", data={"proposal_id": first.id, "stars": 2}, headers=stale)
+    assert r.headers.get("HX-Refresh") == "true"
+    with sf() as s:   # the vote did not change the published round
+        assert s.scalar(select(Rating).where(Rating.proposal_id == first.id)) is None
+
+    # after the reload: the R1 banner and the R2 heading
+    page = sam.get("/app").text
+    assert "<b>R1</b> is published" in page and "<h1>R2</h1>" in page
+    assert f'"X-Round": "{r2}"' in page
+
+
+def test_archive_and_restore_routes(app):
+    csrf = _csrf(TestClient(app)); admin = TestClient(app)
+    sf, r1, _, _ = _two_room_round(app, csrf, admin)
+    _post(admin, "/admin/round", csrf, {"name": "R2", "min_interest": 1})
+    _post(admin, "/admin/round-archive", csrf, {"round_id": r1})
+    sam = TestClient(app); _post(sam, "/enter", csrf, {"code": "p", "name": "Sam"})
+    assert "<h1>R2</h1>" in sam.get("/app").text          # R1 no longer blocks R2
+    assert "Archived (1)" in admin.get("/admin").text
+    _post(admin, "/admin/round-restore", csrf, {"round_id": r1})
+    assert "<h1>R1</h1>" in sam.get("/app").text
 
