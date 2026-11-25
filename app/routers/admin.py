@@ -525,7 +525,9 @@ def round_archive(request: Request, round_id: int = Form(...), token=Depends(req
     event = _event_of(session, token)
     owned_round(session, round_id, event.id)
     RD.archive(session, round_id)
-    return _respond(request, session, event, round_id)
+    # go on to the round that is live now, if there is one
+    live = RD.live_round(session, event.id)
+    return _respond(request, session, event, live.id if live else round_id)
 
 
 @router.post("/round-restore")
