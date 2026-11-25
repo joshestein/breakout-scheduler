@@ -85,13 +85,11 @@ class Round(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     event_id: Mapped[int] = mapped_column(ForeignKey("events.id"), index=True)
     name: Mapped[str] = mapped_column(String(200))
-    status: Mapped[str] = mapped_column(String(20), default="collecting")  # collecting|published
+    # collecting -> published -> archived. Unpublish and restore step back.
+    status: Mapped[str] = mapped_column(String(20), default="collecting")  # collecting|published|archived
     min_interest: Mapped[int] = mapped_column(Integer, default=2)  # min seated non-hosts
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    # set = archived: hidden from participants and attendees, and it no longer
-    # blocks later rounds from opening. Separate from status so restore is exact.
-    archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class Timeslot(Base):
