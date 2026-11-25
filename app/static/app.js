@@ -229,6 +229,16 @@
     renderQR();
     document.body.addEventListener("htmx:afterSwap", function (e) { renderQR(e.target); });
 
+    // The grid poll also refreshes parts of the console out of band. Skip a part
+    // (data-oob-guard) while the admin uses a control in it, so typing is not lost.
+    document.body.addEventListener("htmx:oobBeforeSwap", function (e) {
+      var t = e.detail.target;
+      if (t && t.hasAttribute("data-oob-guard") &&
+          (t.contains(document.activeElement) || t.querySelector("details.act[open]"))) {
+        e.detail.shouldSwap = false;
+      }
+    });
+
     // Keep UI state across htmx swaps. The console re-renders whole on each action
     // and the grid re-renders on its 5s poll, which would close open panels and
     // reset scroll positions. Elements opt in with data-keep="<key>".

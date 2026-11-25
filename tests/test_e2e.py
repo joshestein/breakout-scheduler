@@ -901,6 +901,17 @@ def test_polled_grid_partial_renders(app):
     _, rid, _, _ = _two_room_round(app, csrf, admin)
     r = admin.get(f"/admin/grid?round_id={rid}")
     assert r.status_code == 200 and "Lib" in r.text and "Den" in r.text
+    assert 'id="sessions-list"' in r.text and "No sessions yet." in r.text
+    # a new proposal reaches the left-rail list and the count on the next poll
+    ann = TestClient(app); _post(ann, "/enter", csrf, {"code": "p", "name": "Ann"})
+    _post(ann, "/propose", csrf, {"title": "Fresh topic"})
+    r = admin.get(f"/admin/grid?round_id={rid}")
+    assert 'id="sessions-list" data-oob-guard hx-swap-oob="true"' in r.text
+    assert "Fresh topic" in r.text and "Rename" in r.text
+    assert '<span id="pool-count" hx-swap-oob="true">1</span>' in r.text
+    # the full console renders the list in place, not out of band
+    html = admin.get(f"/admin?round_id={rid}").text
+    assert html.count('id="sessions-list"') == 1 and 'hx-swap-oob' not in html
 
 
 def test_bootstrap_code_gates_first_event(tmp_path):

@@ -8,6 +8,16 @@
   </select>
 </form>
 {%- endmacro %}
+{# Diagnostic banner: always names the admin's next action. In the grid so the poll refreshes it. #}
+{% if not pool %}
+  <div class="note ok">The board is ready. Add sessions in the left panel, or ask people to propose and rate at the participant link.</div>
+{% elif n_eligible == 0 %}
+  <div class="note bad"><b>No sessions are eligible yet.</b> {{ pool|length }} proposed. {{ n_rated }} {{ 'person has' if n_rated == 1 else 'people have' }} rated, but no session has a host and sufficient interested people besides its hosts (★3 or more). Get hosts and ratings, decrease “Minimum people for each session”, or place a session by hand.</div>
+{% elif not placements %}
+  <div class="note ok"><b>{{ n_eligible }}</b> eligible session{{ 's' if n_eligible != 1 }}. Click <b>Generate</b>.</div>
+{% else %}
+  <div class="note">{% if rnd.status == 'published' %}<b>Published.</b> Attendees see each change immediately. {% endif %}{{ placements|length }} on the grid. {{ unplaced|length }} not placed. {{ n_rated }} {{ 'person has' if n_rated == 1 else 'people have' }} rated.</div>
+{% endif %}
 <div class="work">
   <div class="matrix-wrap" data-keep="matrix">
     {% if pin_conflicts %}<div class="note bad">{{ pin_conflicts|length }} pinned session(s) could not stay in place.</div>{% endif %}

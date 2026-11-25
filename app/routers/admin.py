@@ -284,7 +284,7 @@ def grid(request: Request, round_id: int, token=Depends(require_admin),
     event = _event_of(session, token)
     rnd = owned_round(session, round_id, event.id)
     ctx = _context(request, session, event, rnd)
-    return render(request, "_admin_grid.html", **ctx)
+    return render(request, "_admin_poll.html", **ctx)
 
 
 # ---- configuration ---------------------------------------------------------

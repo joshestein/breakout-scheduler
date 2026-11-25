@@ -222,6 +222,8 @@ main{display:block}
 .qrbox{justify-self:start;background:var(--white);border:1px solid var(--line);border-radius:var(--r);padding:6px;line-height:0}
 .qrbox svg{display:block;width:140px;height:140px}
 .items{display:grid}
+#sessions-list{display:grid;gap:8px}
+#grid-wrap{display:grid;gap:14px}
 .item{padding:10px 0;border-top:1px solid var(--line);display:grid;gap:4px}
 .item:first-child{border-top:0;padding-top:0}
 .item b{overflow-wrap:anywhere}
