@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Request, Depends, Form, HTTPException
+from fastapi import APIRouter, Request, Depends, Form, HTTPException, Response
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
@@ -64,6 +64,18 @@ def _rows(session: Session, me: Participant, round_id: int | None) -> list[dict]
     return rows
 
 
+def _page_is_stale(request: Request, rnd: Round | None) -> bool:
+    """True if the Rate page sent a round (X-Round header) that is no longer the open
+    round: the organizer published or archived it since the page loaded."""
+    sent = request.headers.get("X-Round")
+    return sent is not None and sent != str(rnd.id if rnd else 0)
+
+
+def _reload() -> Response:
+    """Tell htmx to reload the whole page, so it shows the round that is open now."""
+    return Response(status_code=200, headers={"HX-Refresh": "true"})
+
+
 @router.get("/app")
 def app_home(request: Request, token=Depends(require_participant),
              session: Session = Depends(get_session)):
@@ -86,6 +98,8 @@ def propose(request: Request, title: str = Form(...), description: str = Form(""
         P.propose(session, event_id=event.id, title=title, created_by=me.id,
                   description=description or None, round_id=rnd.id,
                   min_interest_override=min_attendees, max_attendees=max_attendees)
+    if _page_is_stale(request, rnd):
+        return _reload()   # the proposal went to the open round: show that round
     rows = _rows(session, me, rnd.id) if rnd else []
     return render(request, "_rate_list.html", me=me, rows=rows)
 
@@ -95,9 +109,18 @@ def _row_response(request: Request, session: Session, me: Participant, event: Ev
     """The changed rating row, plus the unrated count (out of band)."""
     rnd = RD.input_round(session, event.id)
     rows = _rows(session, me, rnd.id if rnd else None)
-    row = next(r for r in rows if r["p"].id == proposal_id)
+    row = next((r for r in rows if r["p"].id == proposal_id), None)
+    if row is None:   # the row is not in the open round: the page is out of date
+        return _reload()
     unrated_count = sum(1 for r in rows if not r["rated"])
     return render(request, "_rate_row_oob.html", me=me, r=row, unrated_count=unrated_count)
+
+
+def _in_open_round(session: Session, event: Event, proposal_id: int) -> bool:
+    """Ratings and hosts change only in the open round. A closed round's grid is
+    fixed, so a vote from an out-of-date page must not change it."""
+    rnd = RD.input_round(session, event.id)
+    return rnd is not None and session.get(Proposal, proposal_id).round_id == rnd.id
 
 
 @router.post("/rate")
@@ -106,6 +129,8 @@ def rate(request: Request, proposal_id: int = Form(...), stars: int = Form(...),
          _: None = Depends(require_csrf)):
     me, event = _me_event(session, token)
     owned_proposal(session, proposal_id, event.id)
+    if not _in_open_round(session, event, proposal_id):
+        return _reload()
     RT.set_rating(session, participant_id=me.id, proposal_id=proposal_id, stars=stars)
     return _row_response(request, session, me, event, proposal_id)
 
@@ -116,6 +141,8 @@ def runner_toggle(request: Request, proposal_id: int = Form(...), on: int = Form
                   _: None = Depends(require_csrf)):
     me, event = _me_event(session, token)
     owned_proposal(session, proposal_id, event.id)
+    if not _in_open_round(session, event, proposal_id):
+        return _reload()
     P.set_runner(session, proposal_id, me.id, bool(on))
     if on:  # running implies max interest
         RT.set_rating(session, participant_id=me.id, proposal_id=proposal_id, stars=5)
@@ -129,6 +156,8 @@ def rate_since(request: Request, after: int = 0, token=Depends(require_participa
     this and appends, so existing rows never move (no scroll jumps / misclicks)."""
     me, event = _me_event(session, token)
     rnd = RD.input_round(session, event.id)
+    if _page_is_stale(request, rnd):
+        return _reload()
     rows = _rows(session, me, rnd.id) if rnd else []
     new = [r for r in rows if r["p"].id > after]
     unrated_count = sum(1 for r in rows if not r["rated"])
