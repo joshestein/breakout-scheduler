@@ -84,11 +84,14 @@ def _evaluate(request: Request, session: Session, rnd: Round) -> Result:
 
 def _sync_assignments(request: Request, session: Session, event: Event) -> None:
     """Save the seating of every published round, so attendees see where the solver
-    put them. Call after each change to a published grid. It uses the same cached
+    put them. `_respond` calls this after each admin edit. It uses the same cached
     result as the console, so the console's counts match what attendees see."""
     for rnd in session.scalars(select(Round).where(
             Round.event_id == event.id, Round.status == "published")):
-        RD.save_assignments(session, rnd.id, _evaluate(request, session, rnd))
+        result = _evaluate(request, session, rnd)
+        # UNKNOWN: the solver ran out of time. Keep the old seats, do not clear them.
+        if result.status != "UNKNOWN":
+            RD.save_assignments(session, rnd.id, result)
 
 
 def _session_info(p: Proposal, el: Eligibility, ratings: list[Rating], hosts: set[int],
