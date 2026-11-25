@@ -23,10 +23,11 @@ def create_round(session: Session, *, event_id: int, name: str,
 
 
 def input_round(session: Session, event_id: int) -> Round | None:
-    """The latest round still collecting proposals and ratings. Never a published
-    round: a new proposal would not be on its grid."""
+    """The oldest round still collecting proposals and ratings. Rounds open one at a
+    time in creation order: a later round opens when the one before it is published.
+    Never a published round: a new proposal would not be on its grid."""
     return session.scalar(select(Round).where(
-        Round.event_id == event_id, Round.status == "collecting").order_by(Round.id.desc()))
+        Round.event_id == event_id, Round.status == "collecting").order_by(Round.id.asc()))
 
 
 def published_round(session: Session, event_id: int) -> Round | None:
