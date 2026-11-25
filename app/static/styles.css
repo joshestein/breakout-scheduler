@@ -64,7 +64,7 @@ input.sm,.inrow.sm input{height:var(--ctl-sm);padding:0 8px;font-size:var(--sm)}
 .btn.sm.danger:hover{border-color:var(--danger)}
 /* on/off button (Host this / Hosting): a check mark and a tint show that it is on */
 .btn.toggle[aria-pressed=true]{background:var(--accent-bg);border-color:var(--primary)}
-.btn.toggle .ico{font-size:1.1em;line-height:1}
+.btn .ico{font-size:1.1em;line-height:1}
 /* ghost: no border; used for secondary and destructive actions beside an outlined one */
 .btn.ghost,.btn.sm.ghost{border-color:transparent;background:transparent;box-shadow:none}
 .btn.ghost:hover,.btn.sm.ghost:hover{border-color:transparent;background:rgba(39,50,71,.08)}
@@ -135,7 +135,7 @@ main{display:block}
 .nudge{padding-bottom:8px}
 .nudge:empty{display:none}
 .rows{display:grid}
-.rrow{display:flex;justify-content:space-between;gap:12px;padding:14px 0;border-bottom:1px solid var(--line)}
+.rrow{display:grid;gap:10px;padding:14px 0;border-bottom:1px solid var(--line)}
 .nudge+.rrow,.rrow:first-child{border-top:1px solid var(--line)}
 .rr-main{min-width:0;display:grid;gap:2px;align-content:start}
 .rr-title{overflow-wrap:anywhere}
@@ -150,7 +150,7 @@ main{display:block}
 .editfoot{display:flex;gap:6px;align-items:center}
 /* the ghost button at the row end: its text, not its padding, lines up with the edge */
 .editfoot>form{margin-left:auto;margin-right:-14px}
-.rr-side{display:grid;gap:8px;justify-items:end;align-content:start;flex-shrink:0}
+.rr-side{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .col .btn.sm{padding:6px 14px;min-height:32px}
 .col .inrow.sm .btn,.col .inrow.sm input{height:32px}
 .stars{display:flex;align-items:center;margin:4px 0 0 -6px}
@@ -318,9 +318,5 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline-offset:0
 @media (max-width:480px){
   .slot-rooms li{grid-template-columns:5.5rem minmax(0,1fr)}
   .slot-rooms li .tag{grid-column:2;justify-self:start}
-}
-@media (max-width:360px){
-  .rrow{flex-direction:column}
-  .rr-side{display:flex;justify-content:space-between;align-items:center}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
