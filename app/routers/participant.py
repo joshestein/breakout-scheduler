@@ -109,11 +109,14 @@ def propose(request: Request, title: str = Form(...), description: str = Form(""
             _: None = Depends(require_csrf)):
     me, event = _me_event(session, token)
     rnd = RD.input_round(session, event.id)
-    if title.strip() and rnd:
+    if rnd is None:
+        # the round stopped collecting after this page loaded
+        return _go_home(session, event)
+    if title.strip():
         P.propose(session, event_id=event.id, title=title, created_by=me.id,
                   description=description or None, round_id=rnd.id,
                   min_interest_override=min_attendees, max_attendees=max_attendees)
-    rows = _rows(session, me, rnd.id) if rnd else []
+    rows = _rows(session, me, rnd.id)
     return render(request, "_rate_list.html", me=me, rows=rows)
 
 
