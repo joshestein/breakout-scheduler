@@ -1,6 +1,6 @@
 {% macro archive_button(rnd) %}
   {% if rnd.status == 'archived' %}
-    <form method="post" action="/admin/round-restore" hx-post="/admin/round-restore"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><button class="btn">Restore</button></form>
+    <form method="post" action="/admin/round-restore" hx-post="/admin/round-restore"{% if live_round and live_round.id > rnd.id %} hx-confirm="Restore “{{ rnd.name }}”? It becomes the live round again. Participants and attendees stop seeing “{{ live_round.name }}” until you archive “{{ rnd.name }}” again."{% endif %}><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><button class="btn">Restore</button></form>
   {% else %}
     <form method="post" action="/admin/round-archive" hx-post="/admin/round-archive" hx-confirm="Archive “{{ rnd.name }}”? Participants and attendees stop seeing it, and the next round opens. You can restore it."><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="round_id" value="{{ rnd.id }}"><button class="btn {% if rnd.status != 'published' %}ghost{% endif %}">Archive</button></form>
   {% endif %}
