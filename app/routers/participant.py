@@ -171,13 +171,17 @@ def runner_toggle(request: Request, proposal_id: int = Form(...), on: int = Form
     return _row_response(request, session, me, event, proposal_id)
 
 
+def _digest(shown: object) -> str:
+    """A short hash of what a page shows, for a page to poll with."""
+    return hashlib.sha1(repr(shown).encode()).hexdigest()[:16]
+
+
 def rows_version(rows: list[dict]) -> str:
     """A short hash of everything a rate row shows. The rate page polls with the
     version it was drawn with, and gets a new list only when this changes."""
-    shown = [(r["p"].id, r["p"].title, r["p"].description, r["p"].max_attendees,
-              r["p"].min_interest_override, r["stars"], r["is_runner"], tuple(r["hosts"]),
-              r["mine"]) for r in rows]
-    return hashlib.sha1(repr(shown).encode()).hexdigest()[:16]
+    return _digest([(r["p"].id, r["p"].title, r["p"].description, r["p"].max_attendees,
+                     r["p"].min_interest_override, r["stars"], r["is_runner"],
+                     tuple(r["hosts"]), r["mine"]) for r in rows])
 
 
 @router.get("/app/rate-list")
@@ -287,10 +291,10 @@ def schedule_key(session: Session, event_id: int, grid: list[dict]) -> str:
     shows (times, clocks, rooms, titles, highlights) and the slots that run now.
     So a change after publish (a moved session, a new seat, a started clock)
     reloads the page."""
-    shown = [(s["ts"].id, s["ts"].name, s["ts"].duration_minutes, str(s["ts"].started_at),
-              s["highlight"], [(c["key"], c["title"], c["room_label"], c["cap"])
-                               for c in s["cells"]]) for s in grid]
-    digest = hashlib.sha1(repr(shown).encode()).hexdigest()[:16]
+    digest = _digest([(s["ts"].id, s["ts"].name, s["ts"].duration_minutes,
+                       str(s["ts"].started_at), s["highlight"],
+                       [(c["key"], c["title"], c["room_label"], c["cap"]) for c in s["cells"]])
+                      for s in grid])
     now = ",".join(str(i) for i in sorted(now_slot_ids(grid)))
     return f"{live_key(session, event_id)}:{digest}:{now}"
 
