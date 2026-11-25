@@ -142,7 +142,8 @@ main{display:block}
 .rr-meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:var(--xs);color:var(--muted)}
 /* edit own session in place: the title becomes the field and the row is full width */
 .rrow:has(details.act[open]){display:block}
-.rrow:has(details.act[open]) :is(.rr-title,.rr-main>.prose,.rr-meta>span,.stars,.rr-side){display:none}
+.rrow:has(details.act[open]) :is(.rr-main,.rr-side>form){display:none}
+.rrow:has(details.act[open]) .rr-side{display:block}
 .editbox{display:grid;gap:8px}
 .editbox>form{display:grid;gap:8px}
 .titlein{height:var(--ctl);font-size:var(--md);font-weight:700;color:var(--text)}

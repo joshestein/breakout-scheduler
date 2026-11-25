@@ -6,34 +6,6 @@
       <span class="rr-hosts">{% if r.hosts %}Hosted by {{ r.hosts | join(", ") }}.{% else %}No host yet.{% endif %}</span>
       {% if r.p.max_attendees %}<span title="The host allows a maximum of {{ r.p.max_attendees }} people besides the host">Maximum {{ r.p.max_attendees }} people.</span>{% endif %}
       {% if r.p.min_interest_override %}<span title="Runs only if at least {{ r.p.min_interest_override }} people besides the host come">Needs {{ r.p.min_interest_override }} people to run.</span>{% endif %}
-      {% if r.mine %}
-      <details class="act"><summary class="btn sm">Edit</summary>
-        {# edit in place: while this is open, CSS hides the title, stars and host button of the row #}
-        <div class="editbox">
-          <form id="edit-{{ r.p.id }}" hx-post="/propose-edit" hx-target="#rate-list" hx-swap="outerHTML">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <input type="hidden" name="proposal_id" value="{{ r.p.id }}">
-            <input class="titlein" name="title" value="{{ r.p.title }}" maxlength="200" required aria-label="Session title">
-            <textarea name="description" rows="2" maxlength="1000" placeholder="One sentence about the session (optional)" aria-label="Description">{{ r.p.description or '' }}</textarea>
-            <div class="grid2">
-              <label>Minimum people
-                <input name="min_attendees" type="number" min="1" max="999" inputmode="numeric" placeholder="No minimum" value="{{ r.p.min_interest_override or '' }}"></label>
-              <label>Maximum people
-                <input name="max_attendees" type="number" min="1" max="999" inputmode="numeric" placeholder="No limit" value="{{ r.p.max_attendees or '' }}"></label>
-            </div>
-            <p class="hint">Do not count yourself. If fewer people than the minimum come, the session does not run.</p>
-          </form>
-          <div class="editfoot">
-            <button class="btn sm primary" form="edit-{{ r.p.id }}">Save</button>
-            <button type="reset" class="btn sm ghost" form="edit-{{ r.p.id }}" data-close>Cancel</button>
-            <form hx-post="/propose-delete" hx-target="#rate-list" hx-swap="outerHTML" hx-confirm="Delete your session “{{ r.p.title }}”?">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-              <input type="hidden" name="proposal_id" value="{{ r.p.id }}"><button class="btn sm ghost danger">Delete session</button>
-            </form>
-          </div>
-        </div>
-      </details>
-      {% endif %}
     </div>
     <div class="stars" role="radiogroup" aria-label="How much you want to attend">
       {% set labels = {1:"Will not go",2:"Rather not",3:"Maybe",4:"Want to go",5:"Must go"} %}
@@ -58,5 +30,33 @@
               aria-pressed="{{ 'true' if r.is_runner else 'false' }}"
               title="{{ 'You host this session. Click to stop.' if r.is_runner else 'Host this session. A host must attend it.' }}"><span class="ico" aria-hidden="true">{{ '✓' if r.is_runner else '+' }}</span>{{ 'Hosting' if r.is_runner else 'Host this' }}</button>
     </form>
+        {% if r.mine %}
+        <details class="act"><summary class="btn sm">Edit</summary>
+          {# edit in place: while this is open, CSS hides the rest of the row #}
+          <div class="editbox">
+            <form id="edit-{{ r.p.id }}" hx-post="/propose-edit" hx-target="#rate-list" hx-swap="outerHTML">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="proposal_id" value="{{ r.p.id }}">
+              <input class="titlein" name="title" value="{{ r.p.title }}" maxlength="200" required aria-label="Session title">
+              <textarea name="description" rows="2" maxlength="1000" placeholder="One sentence about the session (optional)" aria-label="Description">{{ r.p.description or '' }}</textarea>
+              <div class="grid2">
+                <label>Minimum people
+                  <input name="min_attendees" type="number" min="1" max="999" inputmode="numeric" placeholder="No minimum" value="{{ r.p.min_interest_override or '' }}"></label>
+                <label>Maximum people
+                  <input name="max_attendees" type="number" min="1" max="999" inputmode="numeric" placeholder="No limit" value="{{ r.p.max_attendees or '' }}"></label>
+              </div>
+              <p class="hint">Do not count yourself. If fewer people than the minimum come, the session does not run.</p>
+            </form>
+            <div class="editfoot">
+              <button class="btn sm primary" form="edit-{{ r.p.id }}">Save</button>
+              <button type="reset" class="btn sm ghost" form="edit-{{ r.p.id }}" data-close>Cancel</button>
+              <form hx-post="/propose-delete" hx-target="#rate-list" hx-swap="outerHTML" hx-confirm="Delete your session “{{ r.p.title }}”?">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="proposal_id" value="{{ r.p.id }}"><button class="btn sm ghost danger">Delete session</button>
+              </form>
+            </div>
+          </div>
+        </details>
+        {% endif %}
   </div>
 </div>
