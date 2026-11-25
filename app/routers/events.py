@@ -8,7 +8,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
-from app.models import Event, Room, Participant, Proposal
+from app.models import Event, Room, Participant
 from app.deps import get_session, current_token, require_csrf, participant_cb, load_participant
 from app.auth import issue_token
 from app.ratelimit import client_ip
@@ -25,16 +25,9 @@ def _set_cookie(resp, token: str, request: Request) -> None:
 
 
 def primary_dest(session: Session, event_id: int) -> str:
-    """Where a participant should land by default: the schedule once one is
-    published and the next round hasn't started collecting, else propose/rate."""
-    input_round = RD.input_round(session, event_id)
-    collecting_started = input_round is not None and session.scalar(select(func.count(Proposal.id))
-        .where(Proposal.round_id == input_round.id, Proposal.status == "active")) > 0
-    if collecting_started:
-        return "/app"                       # a new round is being proposed/voted
-    if RD.published_round(session, event_id) is not None:
-        return "/published"                 # schedule is up / ongoing, between rounds
-    return "/app"                            # first round: start proposing
+    """Where a participant should land by default: the schedule while the live round
+    is published, else propose/rate."""
+    return "/published" if RD.published_round(session, event_id) is not None else "/app"
 
 
 @router.get("/")
