@@ -2,19 +2,14 @@
 {% block title %}Rate: {{ event.name }}{% endblock %}
 {% block page %}participant{% endblock %}
 {% block content %}
-{# X-Round: the round this page shows. The server reloads the page when it changes. #}
-<div class="col" hx-headers='{"X-Round": "{{ collecting.id if collecting else 0 }}"}'>
-  {% if published %}
-    <div class="note ok"><b>{{ published.name }}</b> is published. <a href="/published">Go to your session</a></div>
-  {% endif %}
+<div class="col">
+  {# moves this page on when the organizer publishes, unpublishes or archives #}
+  <div hx-get="/app/live?k={{ live_key|urlencode }}" hx-trigger="every 6s" hx-swap="none"></div>
   {% if collecting %}
     <div>
       <h1>{{ collecting.name }}</h1>
       <p class="prose muted">Rating is open. Propose sessions and rate the sessions you want to attend.</p>
     </div>
-  {% elif not published %}
-    <div class="note">Waiting for the organizer to open a round.</div>
-  {% endif %}
 
   <form class="propose" method="post" action="/propose"
         hx-post="/propose" hx-target="#rate-list" hx-swap="outerHTML"
@@ -38,5 +33,10 @@
   </form>
 
   {% include "_rate_list.html" %}
+  {% elif published %}
+    <div class="note ok"><b>{{ published.name }}</b> is published. <a href="/published">Go to your session</a></div>
+  {% else %}
+    <div class="note">Waiting for the organizer to open a round.</div>
+  {% endif %}
 </div>
 {% endblock %}
