@@ -48,6 +48,31 @@ def test_migrated_schema_matches_create_all():
                     == {c["name"] for c in new.get_columns(table)}), table
 
 
+def test_upgrade_moves_archived_at_into_status(tmp_path):
+    """archived_at becomes status 'archived'. Participants now see the oldest round that
+    is not archived, so the upgrade also archives rounds older than an event's newest
+    published round: each event keeps showing the schedule it showed before."""
+    db = str(tmp_path / "old.db")
+    cfg = _alembic_cfg(db)
+    command.upgrade(cfg, "d4e8a1c6b2f7")
+    with create_engine(f"sqlite:///{db}").begin() as c:
+        c.exec_driver_sql("insert into events (id, name, participant_code, admin_code, created_at) "
+                          "values (1, 'A', 'a', 'aa', '2026-01-01'), (2, 'B', 'b', 'bb', '2026-01-01')")
+        c.exec_driver_sql(
+            "insert into rounds (id, event_id, name, status, min_interest, created_at) values "
+            "(1, 1, 'old', 'published', 2, '2026-01-01'), (2, 1, 'abandoned', 'collecting', 2, '2026-01-01'), "
+            "(3, 1, 'newest', 'published', 2, '2026-01-01'), (4, 1, 'next', 'collecting', 2, '2026-01-01'), "
+            "(5, 2, 'only', 'collecting', 2, '2026-01-01')")
+        c.exec_driver_sql(
+            "insert into rounds (id, event_id, name, status, min_interest, created_at, archived_at) "
+            "values (6, 2, 'dropped', 'collecting', 2, '2026-01-01', '2026-01-02')")
+    command.upgrade(cfg, "head")
+    with create_engine(f"sqlite:///{db}").connect() as c:
+        status = dict(c.exec_driver_sql("select id, status from rounds").fetchall())
+    assert status == {1: "archived", 2: "archived", 3: "published", 4: "collecting",
+                      5: "collecting", 6: "archived"}
+
+
 def test_fresh_file_db_is_stamped_at_head(tmp_path):
     """create_all on a brand-new DB must record the Alembic head, so a later
     RUN_MIGRATIONS=1 upgrade does not try to re-create existing tables."""

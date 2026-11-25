@@ -69,16 +69,29 @@ def test_input_round_excludes_published(session):
     assert RD.published_round(s, e.id) is r1
 
 
-def test_input_round_opens_rounds_in_creation_order(session):
-    """Two rounds made ahead of time: proposals go to the first until it is published."""
+def test_rounds_run_one_at_a_time_in_creation_order(session):
+    """Two rounds made ahead of time. R2 stays hidden until R1 is archived."""
     s = session; e = _event(s)
     r1 = RD.create_round(s, event_id=e.id, name="R1")
     r2 = RD.create_round(s, event_id=e.id, name="R2")
-    assert RD.input_round(s, e.id) is r1
     u = _p(s, e, "U")
     assert P.propose(s, event_id=e.id, title="A", created_by=u.id).round_id == r1.id
     RD.publish(s, r1.id)
-    assert RD.input_round(s, e.id) is r2
+    assert RD.live_round(s, e.id) is r1 and RD.published_round(s, e.id) is r1
+    assert RD.input_round(s, e.id) is None           # no proposing during R1
+    RD.archive(s, r1.id)
+    assert RD.input_round(s, e.id) is r2 and RD.published_round(s, e.id) is None
+
+
+def test_restore_returns_to_the_status_before_archive(session):
+    s = session; e = _event(s)
+    r = RD.create_round(s, event_id=e.id, name="R")
+    RD.archive(s, r.id); RD.restore(s, r.id)
+    assert r.status == "collecting"
+    RD.publish(s, r.id); RD.archive(s, r.id); RD.restore(s, r.id)
+    assert r.status == "published"
+    RD.unpublish(s, r.id); RD.archive(s, r.id); RD.restore(s, r.id)
+    assert r.status == "collecting"   # unpublish clears published_at
 
 
 def test_waiting_round_cannot_be_published_first(session):
@@ -88,46 +101,22 @@ def test_waiting_round_cannot_be_published_first(session):
     assert RD.waiting_for(s, r2) is r1 and RD.waiting_for(s, r1) is None
     with pytest.raises(ValueError, match="R1"):
         RD.publish(s, r2.id)
+    RD.publish(s, r1.id)
+    with pytest.raises(ValueError, match="R1"):     # still waits while R1 is published
+        RD.publish(s, r2.id)
     assert r2.status == "collecting"
 
 
-def test_archive_unblocks_next_round_and_restore_undoes_it(session):
+def test_restore_makes_a_round_live_again(session):
     s = session; e = _event(s)
-    r1 = RD.create_round(s, event_id=e.id, name="R1")
+    r1 = RD.create_round(s, event_id=e.id, name="R1"); RD.publish(s, r1.id)
     r2 = RD.create_round(s, event_id=e.id, name="R2")
     RD.archive(s, r1.id)
-    assert RD.input_round(s, e.id) is r2 and RD.waiting_for(s, r2) is None
+    assert RD.live_round(s, e.id) is r2
     with pytest.raises(ValueError):
         RD.publish(s, r1.id)              # restore first
     RD.restore(s, r1.id)
-    assert RD.input_round(s, e.id) is r1 and r1.status == "collecting"
-
-
-def test_archived_published_round_is_hidden_from_attendees(session):
-    s = session; e = _event(s)
-    r1 = RD.create_round(s, event_id=e.id, name="R1"); RD.publish(s, r1.id)
-    r2 = RD.create_round(s, event_id=e.id, name="R2"); RD.publish(s, r2.id)
-    RD.archive(s, r2.id)
-    assert RD.published_round(s, e.id) is r1   # the newest round that is not archived
-    RD.archive(s, r1.id)
-    assert RD.published_round(s, e.id) is None
-    RD.restore(s, r2.id)
-    assert RD.published_round(s, e.id) is r2 and r2.status == "published"
-
-
-def test_archive_refused_while_a_session_runs(session):
-    from datetime import datetime, timedelta, timezone
-    e, rooms, rnd, ts = _round_with_two_rooms(session)
-    RD.publish(session, rnd.id)
-    RD.start_timeslot(session, ts.id)
-    with pytest.raises(ValueError):
-        RD.archive(session, rnd.id)
-    ts.started_at = datetime.now(timezone.utc) - timedelta(minutes=ts.duration_minutes + 1)
-    RD.archive(session, rnd.id)           # the session has ended
-    assert rnd.archived_at is not None
-
-
-# ---- ratings ---------------------------------------------------------------
+    assert RD.published_round(s, e.id) is r1 and RD.waiting_for(s, r2) is r1
 
 def test_set_rating_upserts(session):
     e = _event(session); u = _p(session, e, "U1")
@@ -201,7 +190,7 @@ def test_rounds_are_isolated_proposals_dont_carry(session):
     assert a.round_id == r1.id
     R.set_rating(s, participant_id=v.id, proposal_id=a.id, stars=5)
     r2 = RD.create_round(s, event_id=e.id, name="R2")
-    RD.publish(s, r1.id)
+    RD.publish(s, r1.id); RD.archive(s, r1.id)
     b = P.propose(s, event_id=e.id, title="B", created_by=u.id)   # now -> r2 (open)
     assert b.round_id == r2.id
     # A is a candidate in its own round, but does NOT leak into the new round

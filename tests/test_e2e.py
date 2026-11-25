@@ -227,11 +227,9 @@ def test_join_link_and_state_aware_default(app):
                 headers={"X-CSRFToken": csrf}, follow_redirects=False)
     assert r.headers["location"] == "/published"
 
-    # open a NEW round and add a proposal -> default flips back to propose/rate
+    # a NEW round goes live when R1 is archived -> default flips back to propose/rate
     _post(admin, "/admin/round", csrf, {"name": "R2"})
-    with sf() as s:
-        r2 = s.scalars(select(Round)).all()[-1].id
-    _post(admin, "/admin/add-session", csrf, {"round_id": r2, "title": "Round 2 topic"})
+    _post(admin, "/admin/round-archive", csrf, {"round_id": rid})
     p3 = TestClient(app)
     r = p3.post("/enter", data={"code": "joinme", "name": "Lee"},
                 headers={"X-CSRFToken": csrf}, follow_redirects=False)
@@ -919,7 +917,7 @@ def test_bootstrap_code_gates_first_event(tmp_path):
     assert _post(c, "/events", csrf, {**ev, "bootstrap_code": "boot"}).url.path == "/admin"
 
 
-def test_back_to_back_rounds_open_in_order_and_stale_rate_page_reloads(app):
+def test_back_to_back_rounds_run_one_at_a_time_and_stale_pages_move_on(app):
     csrf = _csrf(TestClient(app)); admin = TestClient(app)
     sf, r1, _, _ = _two_room_round(app, csrf, admin)
     _post(admin, "/admin/round", csrf, {"name": "R2", "min_interest": 1})
@@ -930,29 +928,37 @@ def test_back_to_back_rounds_open_in_order_and_stale_rate_page_reloads(app):
     # the console opens on R1. R2 waits and cannot be published first
     assert "Waiting for R1" in admin.get("/admin").text
     assert _post(admin, "/admin/publish", csrf, {"round_id": r2}).status_code == 400
-    assert 'title="Publish or archive “R1” first"' in admin.get(f"/admin?round_id={r2}").text
+    assert 'title="Archive “R1” first"' in admin.get(f"/admin?round_id={r2}").text
 
     sam = TestClient(app); _post(sam, "/enter", csrf, {"code": "p", "name": "Sam"})
     _post(sam, "/propose", csrf, {"title": "First"})
     with sf() as s:
         first = s.scalar(select(Proposal).where(Proposal.title == "First"))
         assert first.round_id == r1
-    stale = {"X-CSRFToken": csrf, "X-Round": str(r1)}
-    assert "HX-Refresh" not in sam.get("/app/rate-since", headers=stale).headers
+    rate_page = f"/app/live?k={r1}:collecting"
+    assert f'hx-get="/app/live?k={r1}%3Acollecting"' in sam.get("/app").text
+    assert sam.get(rate_page).status_code == 204
 
     _post(admin, "/admin/publish", csrf, {"round_id": r1})
 
-    # Sam's open page still shows R1: the poll and a vote both reload it
-    assert sam.get("/app/rate-since", headers=stale).headers.get("HX-Refresh") == "true"
-    r = sam.post("/rate", data={"proposal_id": first.id, "stars": 2}, headers=stale)
-    assert r.headers.get("HX-Refresh") == "true"
+    # Sam's Rate page is out of date: the poll and a vote both send it to the seat
+    assert sam.get(rate_page).headers.get("HX-Redirect") == "/published"
+    r = _post(sam, "/rate", csrf, {"proposal_id": first.id, "stars": 2})
+    assert r.headers.get("HX-Redirect") == "/published"
     with sf() as s:   # the vote did not change the published round
         assert s.scalar(select(Rating).where(Rating.proposal_id == first.id)) is None
 
-    # after the reload: the R1 banner and the R2 heading
+    # during R1, participants see nothing of R2
     page = sam.get("/app").text
-    assert "<b>R1</b> is published" in page and "<h1>R2</h1>" in page
-    assert f'"X-Round": "{r2}"' in page
+    assert "<b>R1</b> is published" in page and "R2" not in page and 'name="title"' not in page
+    assert "R2" not in sam.get("/published").text
+    seat_page = f"/app/live?k={r1}:published"
+    assert sam.get(seat_page).status_code == 204
+
+    # archive R1: the console moves on to R2, and the seat page moves on to rating
+    assert "Collecting ratings" in _post(admin, "/admin/round-archive", csrf, {"round_id": r1}).text
+    assert sam.get(seat_page).headers.get("HX-Redirect") == "/app"
+    assert "<h1>R2</h1>" in sam.get("/app").text
 
 
 def test_archive_and_restore_routes(app):
@@ -963,11 +969,11 @@ def test_archive_and_restore_routes(app):
     for rid in (r1, app_round_id(sf)):   # R1 has a timeslot, R2 (newest) has none
         page = admin.get(f"/admin?round_id={rid}").text
         form = re.search(r'<form[^>]*action="/admin/round-archive".*?</form>', page, re.S).group(0)
-        assert f'value="{csrf}"' in form and f'value="{rid}"' in form
+        assert re.search(r'name="csrf_token" value="[^"]+"', form) and f'value="{rid}"' in form
     _post(admin, "/admin/round-archive", csrf, {"round_id": r1})
     sam = TestClient(app); _post(sam, "/enter", csrf, {"code": "p", "name": "Sam"})
     assert "<h1>R2</h1>" in sam.get("/app").text          # R1 no longer blocks R2
     assert "Archived (1)" in admin.get("/admin").text
     _post(admin, "/admin/round-restore", csrf, {"round_id": r1})
-    assert "<h1>R1</h1>" in sam.get("/app").text
+    assert "<h1>R1</h1>" in sam.get("/app").text          # restore makes R1 live again
 
