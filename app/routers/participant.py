@@ -92,12 +92,17 @@ def app_home(request: Request, token=Depends(require_participant),
 
 
 @router.get("/app/live")
-def live_check(k: str = "", token=Depends(require_participant),
+def live_check(k: str = "", page: str = "", token=Depends(require_participant),
                session: Session = Depends(get_session)):
     """Polled by the Rate and Schedule pages with the key they were drawn with (`k`).
-    Sends the page on when the organizer publishes, unpublishes or archives."""
-    _, event = _me_event(session, token)
-    if k != live_key(session, event.id):
+    Sends the page on when the organizer publishes, unpublishes or archives. The
+    Schedule page (`page=schedule`) also reloads when its schedule changes."""
+    me, event = _me_event(session, token)
+    if page == "schedule":
+        current = schedule_key(session, event.id, _my_schedule(session, event, me)[1])
+    else:
+        current = live_key(session, event.id)
+    if k != current:
         return _go_home(session, event)
     return Response(status_code=204)
 
@@ -224,7 +229,7 @@ def build_published_grid(session: Session, event: Event, rnd: Round,
                          mine: dict[int, int] | None = None) -> list[dict]:
     """The published lineup (the live grid), with clocks and a highlight per slot.
     `mine` (timeslot_id -> proposal_id) is where the solver seated the viewer; without
-    a viewer the highlight is the most wanted session."""
+    a viewer the highlight is the most wanted session (only then are counts needed)."""
     props = {p.id: p for p in session.scalars(
         select(Proposal).where(Proposal.event_id == event.id))}
     rooms = {r.id: r for r in session.scalars(
@@ -241,8 +246,9 @@ def build_published_grid(session: Session, event: Event, rnd: Round,
         cells = []
         for pl in sorted(by_ts.get(ts.id, []), key=lambda pl: pl.room_id):
             pid, rid = pl.proposal_id, pl.room_id
-            interested = session.scalar(select(func.count(Rating.id)).where(
-                Rating.proposal_id == pid, Rating.stars >= INTERESTED_STARS)) or 0
+            interested = 0 if mine is not None else session.scalar(
+                select(func.count(Rating.id)).where(
+                    Rating.proposal_id == pid, Rating.stars >= INTERESTED_STARS)) or 0
             room = rooms.get(rid)
             label = room.name if room else "?"
             cells.append({"key": pid, "title": props[pid].title if pid in props else "?",
@@ -259,48 +265,83 @@ def build_published_grid(session: Session, event: Event, rnd: Round,
     return grid
 
 
-@router.get("/published")
-def published(request: Request, token=Depends(require_participant),
-              session: Session = Depends(get_session)):
-    me, event = _me_event(session, token)
-    rnd = RD.published_round(session, event.id)
-    key = live_key(session, event.id)
-    if rnd is None:
-        return render(request, "published.html", me=me, event=event, rnd=None, grid=[],
-                      live_key=key)
-    grid = build_published_grid(session, event, rnd, RD.assignments_of(session, rnd.id, me.id))
-    return render(request, "published.html", me=me, event=event, rnd=rnd, grid=grid,
-                  schedule_md=RD.schedule_markdown(session, rnd.id), live_key=key)
-
-
-@router.get("/present/{code}")
-def present(request: Request, code: str, session: Session = Depends(get_session)):
-    """Wide, large-type projector view of the published schedule (auto-refreshing)."""
-    event = session.scalar(select(Event).where(Event.participant_code == code))
-    if event is None:
-        raise HTTPException(status_code=404, detail="unknown event")
-    rnd = RD.published_round(session, event.id)
-    grid = build_published_grid(session, event, rnd) if rnd else []
+def now_slot_ids(grid: list[dict]) -> set[int]:
+    """The timeslots whose clock runs now."""
     now = datetime.now(timezone.utc)
-    now_ids = set()
+    ids = set()
     for slot in grid:
         ts = slot["ts"]
         if ts.started_at:
             start = as_utc(ts.started_at)
             if start <= now <= start + timedelta(minutes=ts.duration_minutes or 0):
-                now_ids.add(ts.id)
-    return render(request, "present.html", event=event, rnd=rnd, grid=grid, now_ids=now_ids)
+                ids.add(ts.id)
+    return ids
 
 
-@router.get("/s/{code}")
-def public_schedule(request: Request, code: str, session: Session = Depends(get_session)):
-    """Read-only published schedule by event code — no sign-in needed (shareable)."""
+def schedule_key(session: Session, event_id: int, grid: list[dict]) -> str:
+    """The key a schedule page polls with: the live key, a hash of what the grid
+    shows (times, clocks, rooms, titles, highlights) and the slots that run now.
+    So a change after publish (a moved session, a new seat, a started clock)
+    reloads the page."""
+    shown = [(s["ts"].id, s["ts"].name, s["ts"].duration_minutes, str(s["ts"].started_at),
+              s["highlight"], [(c["key"], c["title"], c["room_label"], c["cap"])
+                               for c in s["cells"]]) for s in grid]
+    digest = hashlib.sha1(repr(shown).encode()).hexdigest()[:16]
+    now = ",".join(str(i) for i in sorted(now_slot_ids(grid)))
+    return f"{live_key(session, event_id)}:{digest}:{now}"
+
+
+def _my_schedule(session: Session, event: Event, me: Participant) -> tuple[Round | None, list[dict]]:
+    rnd = RD.published_round(session, event.id)
+    if rnd is None:
+        return None, []
+    return rnd, build_published_grid(session, event, rnd, RD.assignments_of(session, rnd.id, me.id))
+
+
+def _public_schedule(session: Session, code: str) -> tuple[Event, Round | None, list[dict]]:
     # participant code only — the public route must not be an admin-code oracle
     event = session.scalar(select(Event).where(Event.participant_code == code))
     if event is None:
         raise HTTPException(status_code=404, detail="unknown event")
     rnd = RD.published_round(session, event.id)
-    grid = build_published_grid(session, event, rnd) if rnd else []
+    return event, rnd, build_published_grid(session, event, rnd) if rnd else []
+
+
+@router.get("/published")
+def published(request: Request, token=Depends(require_participant),
+              session: Session = Depends(get_session)):
+    me, event = _me_event(session, token)
+    rnd, grid = _my_schedule(session, event, me)
+    return render(request, "published.html", me=me, event=event, rnd=rnd, grid=grid,
+                  schedule_md=RD.schedule_markdown(session, rnd.id) if rnd else "",
+                  live_key=schedule_key(session, event.id, grid))
+
+
+@router.get("/present/{code}")
+def present(request: Request, code: str, session: Session = Depends(get_session)):
+    """Wide, large-type projector view of the published schedule (auto-refreshing)."""
+    event, rnd, grid = _public_schedule(session, code)
+    return render(request, "present.html", event=event, rnd=rnd, grid=grid,
+                  now_ids=now_slot_ids(grid), live_key=schedule_key(session, event.id, grid))
+
+
+@router.get("/s/{code}")
+def public_schedule(request: Request, code: str, session: Session = Depends(get_session)):
+    """Read-only published schedule by event code — no sign-in needed (shareable)."""
+    event, rnd, grid = _public_schedule(session, code)
     return render(request, "published.html", me=None, event=event, rnd=rnd,
                   grid=grid, public=True, join_code=event.participant_code,
-                  schedule_md=RD.schedule_markdown(session, rnd.id) if rnd else "")
+                  schedule_md=RD.schedule_markdown(session, rnd.id) if rnd else "",
+                  live_key=schedule_key(session, event.id, grid))
+
+
+@router.get("/s/{code}/live")
+def public_live_check(code: str, k: str = "", session: Session = Depends(get_session)):
+    """Polled by the public schedule and the projector view with the key they were
+    drawn with (`k`). 204 while it is the same; else the page reloads. The page
+    reloads only after this answer, so a short network failure does not leave a
+    projector on an error page."""
+    event, _, grid = _public_schedule(session, code)
+    if k != schedule_key(session, event.id, grid):
+        return Response(status_code=200, headers={"HX-Refresh": "true"})
+    return Response(status_code=204)
