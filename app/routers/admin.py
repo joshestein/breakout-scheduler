@@ -382,8 +382,10 @@ def add_timeslot(request: Request, round_id: int = Form(...), name: str = Form(.
                  _: None = Depends(require_csrf)):
     event = _event_of(session, token)
     owned_round(session, round_id, event.id)
-    pos = session.scalar(select(func.count(Timeslot.id)).where(
-        Timeslot.round_id == round_id)) or 0
+    # max+1, not count: a delete leaves gaps, and count would repeat a position
+    last = session.scalar(select(func.max(Timeslot.position)).where(
+        Timeslot.round_id == round_id))
+    pos = 0 if last is None else last + 1
     RD.add_timeslot(session, round_id=round_id, name=name.strip(), position=pos,
                     duration_minutes=duration_minutes)
     return _respond(request, session, event, round_id)
