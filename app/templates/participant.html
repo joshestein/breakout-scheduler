@@ -2,7 +2,8 @@
 {% block title %}Rate: {{ event.name }}{% endblock %}
 {% block page %}participant{% endblock %}
 {% block content %}
-<div class="col">
+{# X-Round: the round this page shows. The server reloads the page when it changes. #}
+<div class="col" hx-headers='{"X-Round": "{{ collecting.id if collecting else 0 }}"}'>
   {% if collecting %}
     <div>
       <h1>{{ collecting.name }}</h1>
