@@ -680,6 +680,61 @@ def test_published_view_shows_live_grid(app):
     page = TestClient(app).get("/s/p").text
     assert "Renamed" in page and "Original" not in page
 
+
+def test_schedule_pages_reload_when_schedule_changes(app):
+    csrf = _csrf(TestClient(app)); admin = TestClient(app)
+    _post(admin, "/events", csrf, {"name": "R", "participant_code": "p", "admin_code": "a",
+                                   "admin_name": "Org", "rooms": "Lib, 10"})
+    _post(admin, "/admin/round", csrf, {"name": "R1", "min_interest": 1})
+    sf = app.state.session_factory
+    rid = app_round_id(sf)
+    _post(admin, "/admin/timeslot", csrf, {"round_id": rid, "name": "14:00", "duration_minutes": "45"})
+    sam = TestClient(app); _post(sam, "/enter", csrf, {"code": "p", "name": "Sam"})
+    _post(sam, "/propose", csrf, {"title": "Talk"})
+    with sf() as s:
+        pid = s.scalar(select(Proposal).where(Proposal.title == "Talk")).id
+        tsid = s.scalar(select(Timeslot)).id
+    kim = TestClient(app); _post(kim, "/enter", csrf, {"code": "p", "name": "Kim"})
+    _post(kim, "/rate", csrf, {"proposal_id": pid, "stars": 5})
+    _post(admin, "/admin/solve", csrf, {"round_id": rid})
+    _post(admin, "/admin/publish", csrf, {"round_id": rid})
+
+    def keys():
+        mine = re.search(r'hx-get="/app/live\?k=([^"&]+)&amp;page=schedule"',
+                         sam.get("/published").text).group(1)
+        public = re.search(r'hx-get="/s/p/live\?k=([^"]+)"', TestClient(app).get("/s/p").text).group(1)
+        present = TestClient(app).get("/present/p").text
+        assert "location.reload" not in present and f'hx-get="/s/p/live?k={public}"' in present
+        return mine, public
+
+    def my_poll(k):
+        return sam.get(f"/app/live?k={k}&page=schedule")
+
+    def public_poll(k):
+        return TestClient(app).get(f"/s/p/live?k={k}")
+
+    mine, public = keys()
+    assert my_poll(mine).status_code == 204 and public_poll(public).status_code == 204
+    # the Rate page key alone is still quiet: only the schedule page checks the grid
+    assert sam.get(f"/app/live?k={rid}:published").status_code == 204
+
+    # the organizer starts the clock after publish: every schedule page reloads
+    _post(admin, "/admin/timeslot-start", csrf, {"round_id": rid, "timeslot_id": tsid})
+    assert my_poll(mine).headers.get("HX-Redirect") == "/published"
+    assert public_poll(public).headers.get("HX-Refresh") == "true"
+    mine, public = keys()
+    assert my_poll(mine).status_code == 204 and public_poll(public).status_code == 204
+
+    # a rename after publish also reloads them
+    _post(admin, "/admin/proposal-edit", csrf, {"round_id": rid, "proposal_id": pid, "title": "Talk 2"})
+    assert my_poll(mine).headers.get("HX-Redirect") == "/published"
+    assert public_poll(public).headers.get("HX-Refresh") == "true"
+
+    # archive: the schedule page moves on to Rate
+    _post(admin, "/admin/round-archive", csrf, {"round_id": rid})
+    assert my_poll(mine).headers.get("HX-Redirect") == "/app"
+    assert TestClient(app).get("/s/nope/live?k=x").status_code == 404
+
 def test_bad_csrf_rejected(app):
     admin = TestClient(app)
     resp = admin.post("/events", data={"name": "X", "participant_code": "p",
